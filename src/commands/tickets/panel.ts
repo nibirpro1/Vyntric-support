@@ -7,7 +7,13 @@ import {
   TextChannel,
 } from "discord.js";
 import { Command } from "../../structures/Command";
-import { buildPanelEmbed, buildPanelRows } from "../../lib/panel";
+import {
+  buildCategorySelectRow,
+  buildPanelEmbed,
+  buildPanelRows,
+  buildV2PanelEmbed,
+  buildV2PanelRow,
+} from "../../lib/panel";
 import { updateSettings } from "../../lib/store";
 import { vyntricEmbed } from "../../lib/brand";
 
@@ -21,6 +27,29 @@ const command: Command = {
         .setName("channel")
         .setDescription("Channel to post the panel in (defaults to the current channel)")
         .addChannelTypes(ChannelType.GuildText)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("style")
+        .setDescription("Panel layout style (default: Tickets v2 Single Button)")
+        .addChoices(
+          { name: "Tickets v2 (Clean Single Button 'Open A Ticket')", value: "v2" },
+          { name: "Dropdown (Direct Category Select Menu)", value: "menu" },
+          { name: "Classic (Individual Category Buttons)", value: "buttons" }
+        )
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("title")
+        .setDescription("Custom panel title (default: Order & General Support)")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("button-label")
+        .setDescription("Custom button label (default: Open A Ticket)")
+        .setRequired(false)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -35,11 +64,29 @@ const command: Command = {
       return;
     }
 
+    const style = interaction.options.getString("style") ?? "v2";
+    const customTitle = interaction.options.getString("title") ?? "Order & General Support";
+    const customBtnLabel = interaction.options.getString("button-label") ?? "Open A Ticket";
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    let embed;
+    let components;
+
+    if (style === "v2") {
+      embed = buildV2PanelEmbed(customTitle);
+      components = buildV2PanelRow(customBtnLabel, "📩");
+    } else if (style === "menu") {
+      embed = buildV2PanelEmbed(customTitle);
+      components = buildCategorySelectRow();
+    } else {
+      embed = buildPanelEmbed();
+      components = buildPanelRows();
+    }
+
     const message = await target.send({
-      embeds: [buildPanelEmbed()],
-      components: buildPanelRows(),
+      embeds: [embed],
+      components,
     });
     await message.pin().catch(() => {});
 
@@ -51,13 +98,21 @@ const command: Command = {
     await interaction.editReply({
       embeds: [
         vyntricEmbed("success")
-          .setTitle("✅ Vyntric panel published")
+          .setTitle("✅ Ticket panel published")
           .setDescription(
             [
               `The ticket panel is live in ${target}.`,
-              `**Message:** \`${message.id}\``,
+              `**Style:** \`${style.toUpperCase()}\``,
+              `**Message ID:** \`${message.id}\``,
               "",
-              "Members can now open **Claim Reward**, **Team Application** and **Partnership** tickets.",
+              "Members can now click the button to open tickets for:",
+              "• **General Support**",
+              "• **Order Support**",
+              "• **Claim Reward**",
+              "• **Team Application**",
+              "• **Partnership**",
+              "• **Report Player / Bug**",
+              "",
               "-# Configure staff roles and the log channel with `/setup`.",
             ].join("\n")
           ),

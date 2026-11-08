@@ -5,13 +5,14 @@ import {
   MessageFlags,
   ModalBuilder,
   ModalSubmitInteraction,
+  StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   TextChannel,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
-import { findTicketType } from "../config/tickets";
+import { TICKET_TYPES, findTicketType } from "../config/tickets";
 import { section, vyntricEmbed } from "../lib/brand";
 import { IDS, isTicketCustomId, parseRatingId } from "../lib/customIds";
 import { PRIORITY_META, buildTicketModal } from "../lib/panel";
@@ -43,6 +44,53 @@ export async function deny(interaction: Repliable, content: string) {
   return interaction.replied || interaction.deferred
     ? interaction.followUp(payload)
     : interaction.reply(payload);
+}
+
+
+/** Unified v2 panel button pressed -> show category select dropdown */
+export async function handleOpenSelectorButton(interaction: ButtonInteraction) {
+  if (!interaction.guild) return;
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(IDS.categorySelect)
+    .setPlaceholder("Select a ticket category to open...")
+    .addOptions(
+      TICKET_TYPES.map((type) => ({
+        label: type.label,
+        value: type.id,
+        emoji: type.emoji,
+        description: type.blurb.slice(0, 100),
+      }))
+    );
+
+  await interaction.reply({
+    content: "📋 **Please select the category that best matches your request:**",
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Category selected from menu -> show modal form for that category */
+export async function handleCategorySelect(interaction: StringSelectMenuInteraction) {
+  if (!interaction.guild) return;
+
+  const typeId = interaction.values[0];
+  const type = findTicketType(typeId);
+  if (!type) {
+    await deny(interaction, "This ticket category is no longer available.");
+    return;
+  }
+
+  const existing = findOpenTicketOfType(interaction.guild.id, interaction.user.id, type.id);
+  if (existing) {
+    await interaction.update({
+      content: `⚠️ You already have an open **${type.label}** ticket: <#${existing.channelId}>`,
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.showModal(buildTicketModal(type));
 }
 
 /** Panel button pressed -> type-specific private form. */
@@ -445,6 +493,10 @@ export async function handleTicketComponent(
   if (!isTicketCustomId(customId)) return false;
 
   if (interaction.isButton()) {
+    if (customId === IDS.openSelector) {
+      await handleOpenSelectorButton(interaction);
+      return true;
+    }
     if (customId.startsWith(IDS.openPrefix)) {
       await handleOpenTicketButton(interaction);
       return true;
@@ -476,6 +528,10 @@ export async function handleTicketComponent(
   }
 
   if (interaction.isStringSelectMenu()) {
+    if (customId === IDS.categorySelect) {
+      await handleCategorySelect(interaction);
+      return true;
+    }
     if (customId === IDS.priority) {
       await handlePrioritySelect(interaction);
       return true;

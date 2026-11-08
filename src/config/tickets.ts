@@ -2,10 +2,14 @@ import { ButtonStyle, TextInputStyle } from "discord.js";
 
 /**
  * Vyntric Support ticket catalogue.
- * Only one feature ships for now: the premium ticket system, built from three
- * panels — Claim Reward, Team Application and Partnership.
  */
-export type TicketTypeId = "general_support" | "claim_reward" | "team_application" | "partnership";
+export type TicketTypeId =
+  | "general_support"
+  | "order_support"
+  | "claim_reward"
+  | "team_application"
+  | "partnership"
+  | "player_report";
 
 export interface TicketQuestion {
   /** TextInput custom id + the label reused in the ticket header embed. */
@@ -39,13 +43,13 @@ export const TICKET_TYPES: TicketType[] = [
     label: "General Support",
     emoji: "📩",
     buttonStyle: ButtonStyle.Primary,
-    color: 0x3a86ff,
+    color: 0x5865f2,
     channelPrefix: "ticket",
-    blurb: "Need assistance? Open a ticket with our support staff.",
+    blurb: "Need assistance? Questions, server help, or general issues.",
     promise: "A staff member will assist you directly in this channel.",
     highlights: [
       "General help, questions, or issues",
-      "Direct response from staff",
+      "Direct response from server staff",
       "Private 1-on-1 channel",
     ],
     sla: "Support replies promptly.",
@@ -64,6 +68,48 @@ export const TICKET_TYPES: TicketType[] = [
         placeholder: "Provide any extra info or context",
         style: TextInputStyle.Paragraph,
         maxLength: 600,
+        required: false,
+      },
+    ],
+  },
+  {
+    id: "order_support",
+    label: "Order Support",
+    emoji: "🛍️",
+    buttonStyle: ButtonStyle.Primary,
+    color: 0x9b5de5,
+    channelPrefix: "order",
+    blurb: "Help with store orders, purchases, coins, or pre-sale questions.",
+    promise: "Our store and sales team will assist you with your order.",
+    highlights: [
+      "Order issues, delivery, tracking, or refunds",
+      "Pre-sale questions, pricing, and package info",
+      "Custom orders, special requests, or seller roles",
+    ],
+    sla: "Sales team replies within 12 hours.",
+    answers: [
+      {
+        id: "item_order",
+        label: "Item / Service / Order ID",
+        placeholder: "What order or item do you need assistance with?",
+        style: TextInputStyle.Short,
+        maxLength: 100,
+        required: true,
+      },
+      {
+        id: "issue_details",
+        label: "Describe your order issue or question",
+        placeholder: "Give full details about your order or request",
+        style: TextInputStyle.Paragraph,
+        maxLength: 600,
+        required: true,
+      },
+      {
+        id: "proof",
+        label: "Transaction ID / Receipt link (optional)",
+        placeholder: "Paste transaction ID, receipt link, or 'in ticket'",
+        style: TextInputStyle.Short,
+        maxLength: 200,
         required: false,
       },
     ],
@@ -239,6 +285,48 @@ export const TICKET_TYPES: TicketType[] = [
         style: TextInputStyle.Short,
         maxLength: 200,
         required: true,
+      },
+    ],
+  },
+  {
+    id: "player_report",
+    label: "Report Player / Bug",
+    emoji: "🚨",
+    buttonStyle: ButtonStyle.Danger,
+    color: 0xe23a4e,
+    channelPrefix: "report",
+    blurb: "Report a rule-breaker, toxicity, cheater, or technical bug.",
+    promise: "Moderators will investigate your report confidentially.",
+    highlights: [
+      "Rule violations, toxicity, or harassment",
+      "Cheating, hacking, or unfair gameplay",
+      "Server exploits or technical glitches",
+    ],
+    sla: "Moderation team reviews reports within 24 hours.",
+    answers: [
+      {
+        id: "target_user",
+        label: "Reported User / Subject",
+        placeholder: "Who or what are you reporting?",
+        style: TextInputStyle.Short,
+        maxLength: 100,
+        required: true,
+      },
+      {
+        id: "reason",
+        label: "Reason / Details",
+        placeholder: "Explain what happened in detail",
+        style: TextInputStyle.Paragraph,
+        maxLength: 600,
+        required: true,
+      },
+      {
+        id: "evidence",
+        label: "Evidence / Proof Link (optional)",
+        placeholder: "Screenshot, clip URL, or 'posting in ticket'",
+        style: TextInputStyle.Short,
+        maxLength: 200,
+        required: false,
       },
     ],
   },

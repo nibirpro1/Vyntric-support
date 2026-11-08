@@ -19,6 +19,10 @@ export const IDS = {
   delete: "vt:delete",
   priority: "vt:priority",
 
+  /** Tickets v2 Unified Panel custom IDs */
+  openSelector: "vt:open_selector",
+  categorySelect: "vt:select_category",
+
   /** Self-roles live on their own `vs:` namespace (Vyntric Self-roles). */
   rolePrefix: "vs:role:",
   roleButton: (roleId: string) => `vs:role:${roleId}`,

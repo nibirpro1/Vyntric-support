@@ -9,7 +9,7 @@ import {
   TextInputBuilder,
 } from "discord.js";
 import { TICKET_TYPES, TicketType } from "../config/tickets";
-import { BRAND, getBrandBanner, section, vyntricEmbed } from "./brand";
+import { BRAND, getBrandBanner, getBrandIcon, section, vyntricEmbed } from "./brand";
 import { IDS } from "./customIds";
 import { TicketPriority, TicketRecord } from "./store";
 
@@ -23,7 +23,7 @@ export const PRIORITY_META: Record<
   urgent: { emoji: "🔴", label: "Urgent", tone: "danger" },
 };
 
-/** The premium panel every member sees in the support channel. */
+/** Classic multi-section panel */
 export function buildPanelEmbed() {
   const embed = vyntricEmbed("primary")
     .setTitle(`📩 ${BRAND.name} Support • Ticket Desk`)
@@ -66,6 +66,66 @@ export function buildPanelRows() {
   );
 
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
+}
+
+/**
+ * Tickets v2 Clean Style matching user's reference screenshot:
+ * Sleek purple/blurple border, bulleted category list, and clean single button!
+ */
+export function buildV2PanelEmbed(
+  title = "Order & General Support",
+  intro = "Need help with an order, general assistance, or have a question about our server?"
+) {
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2) // Clean Tickets.bot purple/blurple
+    .setTitle(title)
+    .setDescription(
+      `${intro}\n\n` +
+      `Our team is available to assist with:\n\n` +
+      `**General Support** - Questions, server help, and role assistance\n` +
+      `**Order Support** - Store purchases, tracking, refunds, and exchanges\n` +
+      `**Claim Rewards** - Event, tournament, and giveaway prizes\n` +
+      `**Team Application** - Apply for staff, support, or helper\n` +
+      `**Partnership** - Collaborations, sponsorships, and business inquiries\n` +
+      `**Player & Bug Reports** - Rule violations, toxic behavior, and glitches\n\n` +
+      `Click below and we will get back to you as quickly as possible.`
+    )
+    .setFooter({
+      text: `Powered by Plugsy • Vyntric Support`,
+      iconURL: getBrandIcon(),
+    });
+
+  const banner = getBrandBanner();
+  if (banner) embed.setImage(banner);
+  return embed;
+}
+
+/** Single unified "Open A Ticket" button (Tickets v2 style) */
+export function buildV2PanelRow(label = "Open A Ticket", emoji = "📩") {
+  const button = new ButtonBuilder()
+    .setCustomId(IDS.openSelector)
+    .setLabel(label)
+    .setEmoji(emoji)
+    .setStyle(ButtonStyle.Primary);
+
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(button)];
+}
+
+/** Dropdown category selector */
+export function buildCategorySelectRow() {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(IDS.categorySelect)
+    .setPlaceholder("Select a ticket category to open...")
+    .addOptions(
+      TICKET_TYPES.map((type) => ({
+        label: type.label,
+        value: type.id,
+        emoji: type.emoji,
+        description: type.blurb.slice(0, 100),
+      }))
+    );
+
+  return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
 }
 
 /** Type-specific private form (max 5 questions, enforced in config). */
@@ -174,7 +234,7 @@ export function buildClosedRows(ticket: TicketRecord) {
         .setLabel("Reopen")
         .setEmoji("🔓")
         .setStyle(ButtonStyle.Success)
-        .setDisabled(ticket.status === "open"),
+        .setDisabled(ticket.status !== "open"),
       new ButtonBuilder()
         .setCustomId(IDS.transcript)
         .setLabel("Transcript")
@@ -210,4 +270,3 @@ export function buildRatingRow(ticket: TicketRecord) {
     )
   );
 }
-

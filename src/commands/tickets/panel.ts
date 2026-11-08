@@ -42,7 +42,7 @@ const command: Command = {
     .addStringOption((option) =>
       option
         .setName("title")
-        .setDescription("Custom panel title (default: Order & General Support)")
+        .setDescription("Custom panel title (default: Vyntric Support)")
         .setRequired(false)
     ),
 
@@ -59,7 +59,7 @@ const command: Command = {
     }
 
     const style = interaction.options.getString("style") ?? "buttons";
-    const customTitle = interaction.options.getString("title") ?? "Order & General Support";
+    const customTitle = interaction.options.getString("title") ?? "Vyntric Support";
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -98,11 +98,9 @@ const command: Command = {
               "",
               "Buttons available directly on the panel:",
               "• 📩 **General Support**",
-              "• 🛍️ **Order Support**",
               "• 🎁 **Claim Reward**",
               "• 🛡️ **Team Application**",
               "• 🤝 **Partnership**",
-              "• 🚨 **Report Player / Bug**",
               "",
               "-# Configure staff roles and the log channel with `/setup`.",
             ].join("\n")

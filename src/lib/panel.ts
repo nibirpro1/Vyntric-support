@@ -56,12 +56,12 @@ export function buildPanelEmbed() {
 }
 
 /**
- * Category buttons arranged cleanly into 2 rows of 3 buttons:
- * Row 1: General Support, Order Support, Claim Reward
- * Row 2: Team Application, Partnership, Report Player / Bug
+ * Category buttons:
+ * 4 clean buttons placed on a single neat row:
+ * [ General Support ] [ Claim Reward ] [ Team Application ] [ Partnership ]
  */
 export function buildPanelRows() {
-  const row1Buttons = TICKET_TYPES.slice(0, 3).map((type) =>
+  const buttons = TICKET_TYPES.map((type) =>
     new ButtonBuilder()
       .setCustomId(IDS.openTicket(type.id))
       .setLabel(type.label)
@@ -69,23 +69,7 @@ export function buildPanelRows() {
       .setStyle(type.buttonStyle)
   );
 
-  const row2Buttons = TICKET_TYPES.slice(3, 6).map((type) =>
-    new ButtonBuilder()
-      .setCustomId(IDS.openTicket(type.id))
-      .setLabel(type.label)
-      .setEmoji(type.emoji)
-      .setStyle(type.buttonStyle)
-  );
-
-  const rows: ActionRowBuilder<ButtonBuilder>[] = [
-    new ActionRowBuilder<ButtonBuilder>().addComponents(...row1Buttons),
-  ];
-
-  if (row2Buttons.length > 0) {
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...row2Buttons));
-  }
-
-  return rows;
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
 /**
@@ -93,8 +77,8 @@ export function buildPanelRows() {
  * Sleek purple/blurple border, bulleted category list!
  */
 export function buildV2PanelEmbed(
-  title = "Order & General Support",
-  intro = "Need help with an order, general assistance, or have a question about our server?"
+  title = "Vyntric Support",
+  intro = "Need assistance, have a question, or want to apply for staff?"
 ) {
   const embed = new EmbedBuilder()
     .setColor(0x5865f2) // Clean Tickets.bot purple/blurple
@@ -103,11 +87,9 @@ export function buildV2PanelEmbed(
       `${intro}\n\n` +
       `Our team is available to assist with:\n\n` +
       `**General Support** - Questions, server help, and role assistance\n` +
-      `**Order Support** - Store purchases, tracking, refunds, and exchanges\n` +
       `**Claim Rewards** - Event, tournament, and giveaway prizes\n` +
       `**Team Application** - Apply for staff, support, or helper\n` +
-      `**Partnership** - Collaborations, sponsorships, and business inquiries\n` +
-      `**Player & Bug Reports** - Rule violations, toxic behavior, and glitches\n\n` +
+      `**Partnership** - Collaborations, sponsorships, and business inquiries\n\n` +
       `Click below and we will get back to you as quickly as possible.`
     )
     .setFooter({

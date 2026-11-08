@@ -55,23 +55,46 @@ const OWNER_PERMS = [
 const BLOCKED_BOT_PERMS = [
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.SendMessagesInThreads,
+  PermissionFlagsBits.CreatePublicThreads,
+  PermissionFlagsBits.CreatePrivateThreads,
   PermissionFlagsBits.ReadMessageHistory,
   PermissionFlagsBits.AddReactions,
   PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.UseApplicationCommands,
+  PermissionFlagsBits.UseExternalEmojis,
+  PermissionFlagsBits.UseExternalStickers,
 ];
 
 /**
  * Overwrites that lock every other bot out of a ticket channel, so only
- * Vyntric Support (and staff) can see or answer anything in there.
- * Uses bot application roles (role tags), so it needs no member intent.
+ * Plugsy (and staff) can see or answer anything in there.
+ * Denies bot integration roles, generic 'bot' roles, and individual bot member accounts.
  */
 function blockedBotOverwrites(guild: Guild, meId: string) {
-  return guild.roles.cache
-    .filter((role) => {
-      const botId = role.tags?.botId;
-      return Boolean(botId) && botId !== meId && !role.managed === false;
-    })
-    .map((role) => ({ id: role.id, deny: BLOCKED_BOT_PERMS }));
+  const overwrites: { id: string; deny: bigint[] }[] = [];
+  const addedIds = new Set<string>();
+
+  // 1. Block every bot integration role (e.g. Carl-bot, Dyno, OwO) and generic "bot" roles
+  for (const role of guild.roles.cache.values()) {
+    const isBotRole = Boolean(role.tags?.botId && role.tags.botId !== meId);
+    const isGenericBotRole = role.name.toLowerCase() === "bot" || role.name.toLowerCase() === "bots";
+    if ((isBotRole || isGenericBotRole) && !addedIds.has(role.id)) {
+      overwrites.push({ id: role.id, deny: BLOCKED_BOT_PERMS });
+      addedIds.add(role.id);
+    }
+  }
+
+  // 2. Explicitly block every other bot member in the server
+  for (const member of guild.members.cache.values()) {
+    if (member.user.bot && member.id !== meId && !addedIds.has(member.id)) {
+      overwrites.push({ id: member.id, deny: BLOCKED_BOT_PERMS });
+      addedIds.add(member.id);
+    }
+  }
+
+  return overwrites;
 }
 
 /** Creates the private channel, the pinned header and logs the opening. */

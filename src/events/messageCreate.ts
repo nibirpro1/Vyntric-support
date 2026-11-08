@@ -7,7 +7,7 @@ import {
 } from "discord.js";
 import { getAutoModConfig } from "../lib/automodStore";
 import { findMatchingResponse } from "../lib/autoResponderStore";
-import { getSettings } from "../lib/store";
+import { findTicketByChannel, getSettings } from "../lib/store";
 import { BRAND } from "../lib/brand";
 
 // In-memory spam tracker: userId -> timestamp[]
@@ -19,7 +19,18 @@ export default {
   name: Events.MessageCreate,
   once: false,
   async execute(message: Message) {
-    if (!message.guild || message.author.bot) return;
+    if (!message.guild) return;
+
+    // Silence all other bots inside active ticket channels
+    if (message.author.bot) {
+      if (message.author.id !== message.client.user.id) {
+        const ticket = findTicketByChannel(message.channel.id);
+        if (ticket && ticket.status === "open") {
+          await message.delete().catch(() => {});
+        }
+      }
+      return;
+    }
 
     // Deduplicate in case of duplicate gateway events
     if (handledMessageIds.has(message.id)) return;

@@ -196,8 +196,11 @@ export function describePermissions(roleId: string, guild: Guild): string {
   return names.length ? names.join(", ") : "_No permissions._";
 }
 
-export function staffMentions(settings: GuildSettings) {
-  return settings.staffRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
+export function staffMentions(settings: GuildSettings, guild?: Guild) {
+  const ids = guild
+    ? (settings.staffRoleIds ?? []).filter((roleId) => guild.roles.cache.has(roleId))
+    : (settings.staffRoleIds ?? []);
+  return ids.map((roleId) => `<@&${roleId}>`).join(" ");
 }
 
 /**

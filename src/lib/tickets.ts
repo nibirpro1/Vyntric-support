@@ -3,6 +3,7 @@ import {
   ChannelType,
   Guild,
   GuildMember,
+  OverwriteType,
   PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
@@ -73,7 +74,7 @@ const BLOCKED_BOT_PERMS = [
  * Denies bot integration roles, generic 'bot' roles, and individual bot member accounts.
  */
 function blockedBotOverwrites(guild: Guild, meId: string) {
-  const overwrites: { id: string; deny: bigint[] }[] = [];
+  const overwrites: { id: string; type: OverwriteType; deny: bigint[] }[] = [];
   const addedIds = new Set<string>();
 
   // 1. Block every bot integration role (e.g. Carl-bot, Dyno, OwO) and generic "bot" roles
@@ -81,15 +82,15 @@ function blockedBotOverwrites(guild: Guild, meId: string) {
     const isBotRole = Boolean(role.tags?.botId && role.tags.botId !== meId);
     const isGenericBotRole = role.name.toLowerCase() === "bot" || role.name.toLowerCase() === "bots";
     if ((isBotRole || isGenericBotRole) && !addedIds.has(role.id)) {
-      overwrites.push({ id: role.id, deny: BLOCKED_BOT_PERMS });
+      overwrites.push({ id: role.id, type: OverwriteType.Role, deny: BLOCKED_BOT_PERMS });
       addedIds.add(role.id);
     }
   }
 
   // 2. Explicitly block every other bot member in the server
   for (const member of guild.members.cache.values()) {
-    if (member.user.bot && member.id !== meId && !addedIds.has(member.id)) {
-      overwrites.push({ id: member.id, deny: BLOCKED_BOT_PERMS });
+    if (member.user?.bot && member.id !== meId && !addedIds.has(member.id)) {
+      overwrites.push({ id: member.id, type: OverwriteType.Member, deny: BLOCKED_BOT_PERMS });
       addedIds.add(member.id);
     }
   }
@@ -111,6 +112,10 @@ export async function openTicket(options: {
   const padded = padTicketNumber(number);
   const me = guild.members.me ?? (await guild.members.fetchMe());
 
+  const validStaffRoleIds = (settings.staffRoleIds ?? []).filter((id) =>
+    guild.roles.cache.has(id)
+  );
+
   const channel = (await guild.channels.create({
     name: `${type.channelPrefix}-${padded}`,
     type: ChannelType.GuildText,
@@ -118,10 +123,10 @@ export async function openTicket(options: {
     topic: `${BRAND.name} • Ticket #${padded} • ${type.label} • ${member.user.tag} (${member.id})`,
     reason: `${BRAND.name} ticket #${padded} opened by ${member.user.tag}`,
     permissionOverwrites: [
-      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: member.id, allow: OWNER_PERMS },
-      { id: me.id, allow: [...STAFF_PERMS, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.PinMessages] },
-      ...settings.staffRoleIds.map((roleId) => ({ id: roleId, allow: STAFF_PERMS })),
+      { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: member.id, type: OverwriteType.Member, allow: OWNER_PERMS },
+      { id: me.id, type: OverwriteType.Member, allow: [...STAFF_PERMS, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.PinMessages] },
+      ...validStaffRoleIds.map((roleId) => ({ id: roleId, type: OverwriteType.Role, allow: STAFF_PERMS })),
       // Every other bot loses access here — only Vyntric Support works in tickets.
       ...blockedBotOverwrites(guild, me.id),
     ],
@@ -149,7 +154,7 @@ export async function openTicket(options: {
 
   const header = await channel.send({
     content:
-      [settings.pingStaff ? staffMentions(settings) : "", `<@${member.id}>`]
+      [settings.pingStaff ? staffMentions(settings, guild) : "", `<@${member.id}>`]
         .filter(Boolean)
         .join(" ")
         .trim() || undefined,
@@ -202,7 +207,7 @@ export async function refreshTicketHeader(
 
   const settings = getSettings(ticket.guildId);
   const content = [
-    staffMentions(settings),
+    staffMentions(settings, channel.guild),
     ticket.status === "open" && ticket.claimedBy
       ? `**Claimed by:** <@${ticket.claimedBy}>`
       : `**Ticket owner:** <@${ticket.ownerId}>`,

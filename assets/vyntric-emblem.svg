@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Vyntric Support emblem</title>
+    <polygon points="30,170 76,170 2,18" fill="#ffffff"/>
+    <polygon points="94,170 130,170 84,26" fill="#ffffff"/>
+    <polygon points="148,170 186,170 210,36" fill="#ffffff"/>
+    <polygon points="34,168 124,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="482,170 436,170 510,18" fill="#ffffff"/>
+    <polygon points="418,170 382,170 428,26" fill="#ffffff"/>
+    <polygon points="364,170 326,170 302,36" fill="#ffffff"/>
+    <polygon points="478,168 388,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="234,174 278,174 256,356" fill="#ffffff"/>
+</svg>

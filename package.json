@@ -1,0 +1,37 @@
+{
+  "name": "vyntric-support",
+  "version": "1.0.0",
+  "description": "Vyntric Support - premium Discord ticket system (Claim Reward, Team Application, Partnership)",
+  "main": "dist/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "deploy-commands": "ts-node src/deploy-commands.ts",
+    "invite": "ts-node src/tools/invite.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "ts-node src/tools/verify.ts",
+    "verify:tiers": "ts-node src/tools/verify-tiers.ts",
+    "doctor:commands": "ts-node src/tools/doctor-commands.ts",
+    "brand:assets": "node scripts/render-brand-assets.mjs"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@distube/ytdl-core": "^4.16.12",
+    "discord.js": "^14.27.0",
+    "dotenv": "^16.4.5",
+    "ffmpeg-static": "^5.3.0",
+    "libsodium-wrappers": "^0.8.4",
+    "opusscript": "^0.0.8",
+    "play-dl": "^1.9.7",
+    "yt-search": "^2.13.1"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.9",
+    "@types/node": "^20.14.9",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.3"
+  }
+}

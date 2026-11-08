@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <title>Vyntric Support banner</title>
+  <defs>
+    <linearGradient id="bbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b0207"/>
+      <stop offset="55%" stop-color="#6d0a15"/>
+      <stop offset="100%" stop-color="#c81e2e"/>
+    </linearGradient>
+    <radialGradient id="bglow" cx="0.2" cy="0.3" r="0.8">
+      <stop offset="0%" stop-color="#ff7a8a" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ff7a8a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="400" fill="url(#bbg)"/>
+  <rect width="1200" height="400" fill="url(#bglow)"/>
+  <g transform="translate(690, -80) scale(1.55)" opacity="0.09">
+    <polygon points="30,170 76,170 2,18" fill="#ffffff"/>
+    <polygon points="94,170 130,170 84,26" fill="#ffffff"/>
+    <polygon points="148,170 186,170 210,36" fill="#ffffff"/>
+    <polygon points="34,168 124,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="482,170 436,170 510,18" fill="#ffffff"/>
+    <polygon points="418,170 382,170 428,26" fill="#ffffff"/>
+    <polygon points="364,170 326,170 302,36" fill="#ffffff"/>
+    <polygon points="478,168 388,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="234,174 278,174 256,356" fill="#ffffff"/>
+  </g>
+  <g transform="translate(96, 41.28) scale(0.62)">
+    <polygon points="30,170 76,170 2,18" fill="#ffffff"/>
+    <polygon points="94,170 130,170 84,26" fill="#ffffff"/>
+    <polygon points="148,170 186,170 210,36" fill="#ffffff"/>
+    <polygon points="34,168 124,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="482,170 436,170 510,18" fill="#ffffff"/>
+    <polygon points="418,170 382,170 428,26" fill="#ffffff"/>
+    <polygon points="364,170 326,170 302,36" fill="#ffffff"/>
+    <polygon points="478,168 388,168 256,296 256,484" fill="#ffffff"/>
+    <polygon points="234,174 278,174 256,356" fill="#ffffff"/>
+  </g>
+  <g font-family="Segoe UI, Inter, Arial, sans-serif" fill="#ffffff">
+    <text x="430" y="176" font-size="86" font-weight="700" letter-spacing="6">VYNTRIC</text>
+    <text x="432" y="228" font-size="34" font-weight="500" letter-spacing="14" fill="#ffc2ca">SUPPORT</text>
+  </g>
+  <rect x="432" y="252" width="560" height="3" fill="#ff5c70" opacity="0.85"/>
+  <text x="432" y="296" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="24" fill="#ffd9de" opacity="0.9">
+    Premium ticket desk • Claim Reward • Team Application • Partnership
+  </text>
+</svg>

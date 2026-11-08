@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+data/*.json
+data/transcripts/
+*.log
+*.exit
+preview.txt
+bin/

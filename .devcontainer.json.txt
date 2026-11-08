@@ -1,0 +1,5 @@
+{
+  "name": "Vyntric Support Node 24",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24",
+  "postCreateCommand": "npm install && npm run build"
+}

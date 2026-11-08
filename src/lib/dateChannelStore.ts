@@ -2,18 +2,17 @@ import fs from "fs";
 import path from "path";
 import {
   ChannelType,
-  EmbedBuilder,
   Guild,
+  GuildChannel,
   OverwriteType,
   PermissionFlagsBits,
-  TextChannel,
+  VoiceChannel,
 } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 
 export interface DateChannelConfig {
   guildId: string;
   channelId: string | null;
-  messageId: string | null;
   enabled: boolean;
   timeZone: string;
   lastUpdatedDate: string | null;
@@ -57,7 +56,6 @@ export function getDateChannelConfig(guildId: string): DateChannelConfig {
     configs[guildId] = {
       guildId,
       channelId: null,
-      messageId: null,
       enabled: true,
       timeZone: "Asia/Dhaka",
       lastUpdatedDate: null,
@@ -75,7 +73,6 @@ export function updateDateChannelConfig(
   const current = configs[guildId] || {
     guildId,
     channelId: null,
-    messageId: null,
     enabled: true,
     timeZone: "Asia/Dhaka",
     lastUpdatedDate: null,
@@ -86,19 +83,20 @@ export function updateDateChannelConfig(
 }
 
 /**
- * Formats channel name containing:
- * - Day (koto tarik): e.g. 09
- * - Month (koto month): e.g. nov
- * - Year (koto sal): e.g. 2026
- * - Weekday (ki bar): e.g. monday
+ * Formats Voice Channel name containing real life Bangladesh date:
+ * - Day (koto tarik): 09
+ * - Month (koto month): Nov
+ * - Year (koto sal): 2026
+ * - Weekday (ki bar): Monday
+ * Result: "📅 09 Nov 2026 • Monday"
  */
 export function formatDateName(date: Date = new Date(), timeZone = "Asia/Dhaka"): string {
   const d = new Intl.DateTimeFormat("en-US", { timeZone, day: "2-digit" }).format(date);
-  const m = new Intl.DateTimeFormat("en-US", { timeZone, month: "short" }).format(date).toLowerCase();
+  const m = new Intl.DateTimeFormat("en-US", { timeZone, month: "short" }).format(date);
   const y = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(date);
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(date).toLowerCase();
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(date);
 
-  return `📅・${d}-${m}-${y}・${weekday}`;
+  return `📅 ${d} ${m} ${y} • ${weekday}`;
 }
 
 export function getCurrentDateKey(date: Date = new Date(), timeZone = "Asia/Dhaka"): string {
@@ -108,54 +106,30 @@ export function getCurrentDateKey(date: Date = new Date(), timeZone = "Asia/Dhak
   return `${y}-${m}-${d}`;
 }
 
-export function buildDateEmbed(date: Date = new Date(), timeZone = "Asia/Dhaka"): EmbedBuilder {
-  const fullDate = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    dateStyle: "full",
-  }).format(date);
-  const unixSeconds = Math.floor(date.getTime() / 1000);
-
-  return new EmbedBuilder()
-    .setColor(0x7c3aed)
-    .setTitle("📅 Vyntric Live Date & Calendar")
-    .setDescription(
-      [
-        `### 🗓️ **${fullDate}**`,
-        "",
-        `⏱️ **Live Timestamp:** <t:${unixSeconds}:F> (<t:${unixSeconds}:R>)`,
-        `🌐 **Timezone:** \`${timeZone}\` (GMT+6 Bangladesh Standard Time)`,
-        "",
-        "> 🔄 *This channel automatically updates every midnight to show the current date, month, year, and day of the week.*",
-      ].join("\n")
-    )
-    .setFooter({ text: "Powered by Plugsy • Vyntric Live Automation" })
-    .setTimestamp(date);
-}
-
 /**
- * Creates or synchronizes the automated date channel placed at position 0 (above ticket-kiddowit).
+ * Creates or synchronizes the automated date Voice Channel (VC) placed at position 0 (above ticket-kiddowit).
  */
 export async function syncDateChannel(
   guild: Guild,
   forceUpdate = false
-): Promise<{ channel: TextChannel; updated: boolean }> {
+): Promise<{ channel: VoiceChannel; updated: boolean }> {
   const config = getDateChannelConfig(guild.id);
   const now = new Date();
   const targetName = formatDateName(now, config.timeZone);
   const dateKey = getCurrentDateKey(now, config.timeZone);
 
-  let channel: TextChannel | null = null;
+  let channel: VoiceChannel | null = null;
 
   // 1. Try to find existing channel from config
   if (config.channelId) {
     const existing = guild.channels.cache.get(config.channelId);
-    if (existing && existing.type === ChannelType.GuildText) {
-      channel = existing as TextChannel;
+    if (existing && existing.type === ChannelType.GuildVoice) {
+      channel = existing as VoiceChannel;
     } else {
       try {
         const fetched = await guild.channels.fetch(config.channelId);
-        if (fetched && fetched.type === ChannelType.GuildText) {
-          channel = fetched as TextChannel;
+        if (fetched && fetched.type === ChannelType.GuildVoice) {
+          channel = fetched as VoiceChannel;
         }
       } catch {
         channel = null;
@@ -163,114 +137,79 @@ export async function syncDateChannel(
     }
   }
 
-  // 2. Fallback: look for channel starting with 📅
+  // 2. Fallback: look for voice channel starting with 📅
   if (!channel) {
     const found = guild.channels.cache.find(
-      (c) => c.parentId === null && c.type === ChannelType.GuildText && c.name.startsWith("📅")
+      (c) => c.type === ChannelType.GuildVoice && c.name.startsWith("📅")
     );
     if (found) {
-      channel = found as TextChannel;
+      channel = found as VoiceChannel;
       updateDateChannelConfig(guild.id, { channelId: channel.id });
     }
   }
 
+  // 3. Remove any lingering legacy text date channels
+  const legacyText = guild.channels.cache.find(
+    (c) => c.type === ChannelType.GuildText && c.name.startsWith("📅")
+  );
+  if (legacyText) {
+    await legacyText.delete("Replaced by live date Voice Channel").catch(() => {});
+  }
+
   let updated = false;
 
-  // 3. Create channel if it still doesn't exist
+  // 4. Create Voice Channel if it still doesn't exist
   if (!channel) {
     const me = guild.members.me ?? (await guild.members.fetchMe());
     channel = (await guild.channels.create({
       name: targetName,
-      type: ChannelType.GuildText,
+      type: ChannelType.GuildVoice,
       position: 0,
-      reason: "Plugsy automated live date channel (placed above ticket-kiddowit)",
+      reason: "Plugsy automated live date Voice Channel (above ticket-kiddowit)",
       permissionOverwrites: [
         {
           id: guild.roles.everyone.id,
           type: OverwriteType.Role,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-          deny: [
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.AddReactions,
-            PermissionFlagsBits.CreatePublicThreads,
-            PermissionFlagsBits.CreatePrivateThreads,
-            PermissionFlagsBits.SendMessagesInThreads,
-          ],
+          allow: [PermissionFlagsBits.ViewChannel],
+          deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
         },
         {
           id: me.id,
           type: OverwriteType.Member,
           allow: [
             PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
             PermissionFlagsBits.ManageChannels,
-            PermissionFlagsBits.ManageMessages,
-            PermissionFlagsBits.EmbedLinks,
-            PermissionFlagsBits.PinMessages,
+            PermissionFlagsBits.Connect,
           ],
         },
       ],
-    })) as TextChannel;
+    })) as VoiceChannel;
 
-    // Ensure it's at position 0
     await channel.setPosition(0).catch(() => {});
-
-    // Send and pin initial embed
-    const embed = buildDateEmbed(now, config.timeZone);
-    const msg = await channel.send({ embeds: [embed] }).catch(() => null);
-    if (msg) {
-      await msg.pin().catch(() => {});
-      updateDateChannelConfig(guild.id, {
-        channelId: channel.id,
-        messageId: msg.id,
-        lastUpdatedDate: dateKey,
-      });
-    } else {
-      updateDateChannelConfig(guild.id, {
-        channelId: channel.id,
-        lastUpdatedDate: dateKey,
-      });
-    }
+    updateDateChannelConfig(guild.id, {
+      channelId: channel.id,
+      lastUpdatedDate: dateKey,
+    });
 
     return { channel, updated: true };
   }
 
-  // 4. If channel exists, check if name or embed needs updating
+  // 5. If channel exists, check if name or position needs updating
   if (channel.name !== targetName || forceUpdate || config.lastUpdatedDate !== dateKey) {
     if (channel.name !== targetName) {
-      await channel.setName(targetName, "Plugsy automated date rollover").catch((err) => {
+      await channel.setName(targetName, "Bangladesh real life date rollover").catch((err) => {
         console.warn("[dateChannel:setName:error]", err.message);
       });
     }
 
-    // Keep position at 0 above ticket-kiddowit
     if (channel.position > 0) {
       await channel.setPosition(0).catch(() => {});
     }
 
-    // Update pinned message
-    if (config.messageId) {
-      try {
-        const msg = await channel.messages.fetch(config.messageId);
-        if (msg) {
-          await msg.edit({ embeds: [buildDateEmbed(now, config.timeZone)] });
-        }
-      } catch {
-        const newMsg = await channel.send({ embeds: [buildDateEmbed(now, config.timeZone)] }).catch(() => null);
-        if (newMsg) {
-          await newMsg.pin().catch(() => {});
-          updateDateChannelConfig(guild.id, { messageId: newMsg.id });
-        }
-      }
-    } else {
-      const newMsg = await channel.send({ embeds: [buildDateEmbed(now, config.timeZone)] }).catch(() => null);
-      if (newMsg) {
-        await newMsg.pin().catch(() => {});
-        updateDateChannelConfig(guild.id, { messageId: newMsg.id });
-      }
-    }
-
-    updateDateChannelConfig(guild.id, { lastUpdatedDate: dateKey });
+    updateDateChannelConfig(guild.id, {
+      channelId: channel.id,
+      lastUpdatedDate: dateKey,
+    });
     updated = true;
   }
 
@@ -281,6 +220,7 @@ let syncInterval: NodeJS.Timeout | null = null;
 
 /**
  * Initializes automatic background date sync across all served guilds.
+ * Runs every 5 minutes to continuously match real-life Bangladesh time (Asia/Dhaka).
  */
 export function initDateChannelSync(client: VyntricClient) {
   if (syncInterval) clearInterval(syncInterval);
@@ -301,6 +241,6 @@ export function initDateChannelSync(client: VyntricClient) {
   // Run on startup
   runSync().catch(() => {});
 
-  // Check every 10 minutes (stays comfortably under Discord's 2 renames per 10m rate limit)
-  syncInterval = setInterval(runSync, 10 * 60 * 1000);
+  // Check every 5 minutes continuously
+  syncInterval = setInterval(runSync, 5 * 60 * 1000);
 }

@@ -83,20 +83,16 @@ export function updateDateChannelConfig(
 }
 
 /**
- * Formats Voice Channel name containing real life Bangladesh date:
- * - Day (koto tarik): 09
- * - Month (koto month): Nov
- * - Year (koto sal): 2026
- * - Weekday (ki bar): Monday
- * Result: "📅 09 Nov 2026 • Monday"
+ * Formats Voice Channel name containing real life Bangladesh date in Month/Day/Year format:
+ * - Example: "📅 11/9/2026 • Monday"
  */
 export function formatDateName(date: Date = new Date(), timeZone = "Asia/Dhaka"): string {
-  const d = new Intl.DateTimeFormat("en-US", { timeZone, day: "2-digit" }).format(date);
-  const m = new Intl.DateTimeFormat("en-US", { timeZone, month: "short" }).format(date);
+  const m = new Intl.DateTimeFormat("en-US", { timeZone, month: "numeric" }).format(date);
+  const d = new Intl.DateTimeFormat("en-US", { timeZone, day: "numeric" }).format(date);
   const y = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(date);
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(date);
 
-  return `📅 ${d} ${m} ${y} • ${weekday}`;
+  return `📅 ${m}/${d}/${y} • ${weekday}`;
 }
 
 export function getCurrentDateKey(date: Date = new Date(), timeZone = "Asia/Dhaka"): string {

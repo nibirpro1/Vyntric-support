@@ -21,12 +21,16 @@ export default {
   async execute(message: Message) {
     if (!message.guild) return;
 
-    // Silence all other bots inside active ticket channels
+    // Silence non-admin bots inside active ticket channels
     if (message.author.bot) {
       if (message.author.id !== message.client.user.id) {
-        const ticket = findTicketByChannel(message.channel.id);
-        if (ticket && ticket.status === "open") {
-          await message.delete().catch(() => {});
+        // If the bot has Administrator permissions, allow it through
+        const isBotAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
+        if (!isBotAdmin) {
+          const ticket = findTicketByChannel(message.channel.id);
+          if (ticket && ticket.status === "open") {
+            await message.delete().catch(() => {});
+          }
         }
       }
       return;
@@ -47,13 +51,14 @@ export default {
     const autoMod = getAutoModConfig(guild.id);
     const settings = getSettings(guild.id);
 
-    // Check staff immunity (only active if adminImmunity is toggled on in config)
-    const isAdmin = member?.permissions.has(PermissionFlagsBits.Administrator) ||
+    // Discord Administrators & Staff are ALWAYS immune - never auto-delete admin messages
+    const isAdmin =
+      member?.permissions.has(PermissionFlagsBits.Administrator) ||
       member?.permissions.has(PermissionFlagsBits.ManageGuild);
     const isStaff = member?.roles.cache.some((r) =>
       settings.staffRoleIds?.includes(r.id)
     );
-    const isImmune = autoMod.adminImmunity && (isAdmin || isStaff);
+    const isImmune = isAdmin || isStaff || autoMod.adminImmunity;
 
     if (autoMod.enabled && !isImmune) {
       let violated = false;

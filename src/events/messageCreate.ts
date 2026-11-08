@@ -21,16 +21,13 @@ export default {
   async execute(message: Message) {
     if (!message.guild) return;
 
-    // Silence non-admin bots inside active ticket channels
+    // Silence ALL other bots inside active ticket channels (even if another bot has Administrator role)
     if (message.author.bot) {
       if (message.author.id !== message.client.user.id) {
-        // If the bot has Administrator permissions, allow it through
-        const isBotAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
-        if (!isBotAdmin) {
-          const ticket = findTicketByChannel(message.channel.id);
-          if (ticket && ticket.status === "open") {
-            await message.delete().catch(() => {});
-          }
+        const ticket = findTicketByChannel(message.channel.id);
+        if (ticket && ticket.status === "open") {
+          // Immediately wipe other bot's message so only Plugsy and human staff can talk
+          await message.delete().catch(() => {});
         }
       }
       return;

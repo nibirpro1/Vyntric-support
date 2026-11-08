@@ -1,6 +1,7 @@
 import { ActivityType, Events } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 import { BRAND, setBrandAssets } from "../lib/brand";
+import { initDateChannelSync } from "../lib/dateChannelStore";
 
 export default {
   // `clientReady` is the v15-safe name for the old `ready` event.
@@ -31,6 +32,13 @@ export default {
       initGiveaways(client);
     } catch (err) {
       console.error("[giveaways:init:error]", err);
+    }
+
+    // Initialize automated live date channel
+    try {
+      initDateChannelSync(client);
+    } catch (err) {
+      console.error("[dateChannel:init:error]", err);
     }
   },
 };

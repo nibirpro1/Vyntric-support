@@ -289,7 +289,6 @@ export async function closeTicket(options: {
               section("What happens now"),
               "🔓 Staff can reopen this ticket at any time",
               "📄 The full transcript was posted to the log channel",
-              "⭐ The requester received a rating request in DM",
             ].join("\n")
           ),
       ],
@@ -318,27 +317,7 @@ export async function closeTicket(options: {
     [transcript.html, transcript.txt]
   );
 
-  if (settings.dmTranscript && owner) {
-    await owner
-      .send({
-        embeds: [
-          vyntricEmbed("neutral")
-            .setTitle(`Your Vyntric ticket #${padded} was closed`)
-            .setDescription(
-              [
-                `**Closed by:** ${actorTag}`,
-                `**Reason:** ${reason}`,
-                "",
-                "A copy of the transcript is attached.",
-                "How was our support? Rate it below 👇",
-              ].join("\n")
-            ),
-        ],
-        components: [buildRatingRow(closed)],
-        files: [transcript.txt],
-      })
-      .catch(() => {});
-  }
+  // DM transcript disabled per server configuration
 
   return { ticket: closed, transcript };
 }

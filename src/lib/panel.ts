@@ -55,9 +55,13 @@ export function buildPanelEmbed() {
   return embed;
 }
 
-/** One button per ticket type. */
+/**
+ * Category buttons arranged cleanly into 2 rows of 3 buttons:
+ * Row 1: General Support, Order Support, Claim Reward
+ * Row 2: Team Application, Partnership, Report Player / Bug
+ */
 export function buildPanelRows() {
-  const buttons = TICKET_TYPES.slice(0, 5).map((type) =>
+  const row1Buttons = TICKET_TYPES.slice(0, 3).map((type) =>
     new ButtonBuilder()
       .setCustomId(IDS.openTicket(type.id))
       .setLabel(type.label)
@@ -65,12 +69,28 @@ export function buildPanelRows() {
       .setStyle(type.buttonStyle)
   );
 
-  return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
+  const row2Buttons = TICKET_TYPES.slice(3, 6).map((type) =>
+    new ButtonBuilder()
+      .setCustomId(IDS.openTicket(type.id))
+      .setLabel(type.label)
+      .setEmoji(type.emoji)
+      .setStyle(type.buttonStyle)
+  );
+
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(...row1Buttons),
+  ];
+
+  if (row2Buttons.length > 0) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...row2Buttons));
+  }
+
+  return rows;
 }
 
 /**
  * Tickets v2 Clean Style matching user's reference screenshot:
- * Sleek purple/blurple border, bulleted category list, and clean single button!
+ * Sleek purple/blurple border, bulleted category list!
  */
 export function buildV2PanelEmbed(
   title = "Order & General Support",
@@ -100,7 +120,7 @@ export function buildV2PanelEmbed(
   return embed;
 }
 
-/** Single unified "Open A Ticket" button (Tickets v2 style) */
+/** Single unified "Open A Ticket" button */
 export function buildV2PanelRow(label = "Open A Ticket", emoji = "📩") {
   const button = new ButtonBuilder()
     .setCustomId(IDS.openSelector)

@@ -31,11 +31,11 @@ const command: Command = {
     .addStringOption((option) =>
       option
         .setName("style")
-        .setDescription("Panel layout style (default: Tickets v2 Single Button)")
+        .setDescription("Panel layout style (default: All Category Buttons)")
         .addChoices(
-          { name: "Tickets v2 (Clean Single Button 'Open A Ticket')", value: "v2" },
-          { name: "Dropdown (Direct Category Select Menu)", value: "menu" },
-          { name: "Classic (Individual Category Buttons)", value: "buttons" }
+          { name: "All Category Buttons (Direct Buttons for each category)", value: "buttons" },
+          { name: "Tickets v2 Single Button ('Open A Ticket')", value: "v2" },
+          { name: "Dropdown (Direct Category Select Menu)", value: "menu" }
         )
         .setRequired(false)
     )
@@ -43,12 +43,6 @@ const command: Command = {
       option
         .setName("title")
         .setDescription("Custom panel title (default: Order & General Support)")
-        .setRequired(false)
-    )
-    .addStringOption((option) =>
-      option
-        .setName("button-label")
-        .setDescription("Custom button label (default: Open A Ticket)")
         .setRequired(false)
     ),
 
@@ -64,23 +58,20 @@ const command: Command = {
       return;
     }
 
-    const style = interaction.options.getString("style") ?? "v2";
+    const style = interaction.options.getString("style") ?? "buttons";
     const customTitle = interaction.options.getString("title") ?? "Order & General Support";
-    const customBtnLabel = interaction.options.getString("button-label") ?? "Open A Ticket";
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    let embed;
+    let embed = buildV2PanelEmbed(customTitle);
     let components;
 
     if (style === "v2") {
-      embed = buildV2PanelEmbed(customTitle);
-      components = buildV2PanelRow(customBtnLabel, "📩");
+      components = buildV2PanelRow("Open A Ticket", "📩");
     } else if (style === "menu") {
-      embed = buildV2PanelEmbed(customTitle);
       components = buildCategorySelectRow();
     } else {
-      embed = buildPanelEmbed();
+      // Default: Direct category buttons for all topics!
       components = buildPanelRows();
     }
 
@@ -105,13 +96,13 @@ const command: Command = {
               `**Style:** \`${style.toUpperCase()}\``,
               `**Message ID:** \`${message.id}\``,
               "",
-              "Members can now click the button to open tickets for:",
-              "• **General Support**",
-              "• **Order Support**",
-              "• **Claim Reward**",
-              "• **Team Application**",
-              "• **Partnership**",
-              "• **Report Player / Bug**",
+              "Buttons available directly on the panel:",
+              "• 📩 **General Support**",
+              "• 🛍️ **Order Support**",
+              "• 🎁 **Claim Reward**",
+              "• 🛡️ **Team Application**",
+              "• 🤝 **Partnership**",
+              "• 🚨 **Report Player / Bug**",
               "",
               "-# Configure staff roles and the log channel with `/setup`.",
             ].join("\n")

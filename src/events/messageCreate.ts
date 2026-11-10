@@ -10,6 +10,7 @@ import { findMatchingResponse } from "../lib/autoResponderStore";
 import { findTicketByChannel, getSettings } from "../lib/store";
 import { BRAND } from "../lib/brand";
 import { cacheMessage, logCommandExecution, logMessageSent } from "../lib/loggingStore";
+import { handleAIMessageModeration } from "../lib/aiModerator";
 
 // In-memory spam tracker: userId -> timestamp[]
 const userMessageTimes: Map<string, number[]> = new Map();
@@ -124,6 +125,18 @@ export default {
           fullCommand: trimmed,
         });
       }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 0. AI CHAT ASSISTANT MODERATION (Gali / Slur Analysis & 40s Timeout)
+    // ─────────────────────────────────────────────────────────────
+    try {
+      const aiHandled = await handleAIMessageModeration(message);
+      if (aiHandled) {
+        return; // Action taken (deleted & user timed out), halt further processing
+      }
+    } catch (err) {
+      console.error("[aiModerator:error]", err);
     }
 
     // ─────────────────────────────────────────────────────────────

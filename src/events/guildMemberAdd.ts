@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { formatWelcomeText, getRandomWelcomeJoke, getWelcomeConfig } from "../lib/welcomeStore";
 import { BRAND } from "../lib/brand";
+import { getAntiNukeConfig } from "../lib/antinukeStore";
+import { isImmune, executePunishment, sendAntiNukeAlert } from "../lib/antinukeManager";
 
 const DEFAULT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-welcome.gif");
 
@@ -11,6 +13,56 @@ export default {
   once: false,
   async execute(member: GuildMember) {
     console.log(`[welcome] Member joined: ${member.user.tag} (${member.id}) bot=${member.user.bot}`);
+
+    // ─────────────────────────────────────────────────────────────
+    // 0. ANTI-NUKE: UNAUTHORIZED BOT ADD PROTECTION
+    // ─────────────────────────────────────────────────────────────
+    if (member.user.bot) {
+      const antiNukeConfig = getAntiNukeConfig(member.guild.id);
+      if (antiNukeConfig.enabled && antiNukeConfig.features.antiBot.enabled) {
+        try {
+          await new Promise((r) => setTimeout(r, 600));
+          const auditLogs = await member.guild.fetchAuditLogs({
+            limit: 3,
+            type: 28, // AuditLogEvent.BotAdd
+          });
+          const entry =
+            auditLogs.entries.find((e) => e.targetId === member.id) ||
+            auditLogs.entries.first();
+
+          if (entry && entry.executor && !isImmune(member.guild, entry.executor.id)) {
+            console.warn(
+              `[antinuke:antibot] Unauthorized bot add detected: ${member.user.tag} added by ${entry.executor.tag}`
+            );
+
+            // 1. Kick unauthorized bot
+            await member.kick("[Krypton Anti-Nuke] Unauthorized bot addition");
+
+            // 2. Punish inviter
+            const punishmentResult = await executePunishment(
+              member.guild,
+              entry.executor.id,
+              `Unauthorized bot addition (${member.user.tag})`,
+              antiNukeConfig
+            );
+
+            // 3. Send security alert
+            await sendAntiNukeAlert({
+              guild: member.guild,
+              executor: entry.executor,
+              actionName: "Anti-Bot (Unauthorized Bot Add)",
+              details: `Bot: <@${member.id}> (\`${member.user.tag}\`)`,
+              punishmentResult: `Bot Kicked & Inviter ${punishmentResult}`,
+              config: antiNukeConfig,
+            });
+
+            return; // Abort welcome flow
+          }
+        } catch (err) {
+          console.error("[antinuke:antibot:error]", err);
+        }
+      }
+    }
 
     const config = getWelcomeConfig(member.guild.id);
     if (!config.enabled && !config.channelId && (!config.autoRoleIds || config.autoRoleIds.length === 0)) {

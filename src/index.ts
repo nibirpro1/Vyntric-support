@@ -28,6 +28,8 @@ const client = new VyntricClient({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildWebhooks,
   ],
   partials: [
     Partials.Channel,

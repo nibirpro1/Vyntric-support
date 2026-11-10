@@ -1,0 +1,59 @@
+{
+  "1507706011622965258": {
+    "guildId": "1507706011622965258",
+    "enabled": true,
+    "extraOwners": [
+      "986700106285862973",
+      "1520324366854914054"
+    ],
+    "whitelistedUsers": [],
+    "whitelistedRoles": [],
+    "logChannelId": "1508536272048885853",
+    "punishment": "ban",
+    "features": {
+      "antiBot": {
+        "enabled": true,
+        "action": "kick_bot_and_punish_inviter"
+      },
+      "channelDelete": {
+        "enabled": true,
+        "limit": 2,
+        "windowSeconds": 10
+      },
+      "channelCreate": {
+        "enabled": true,
+        "limit": 3,
+        "windowSeconds": 10
+      },
+      "roleDelete": {
+        "enabled": true,
+        "limit": 2,
+        "windowSeconds": 10
+      },
+      "roleCreate": {
+        "enabled": true,
+        "limit": 3,
+        "windowSeconds": 10
+      },
+      "memberBan": {
+        "enabled": true,
+        "limit": 3,
+        "windowSeconds": 10
+      },
+      "memberKick": {
+        "enabled": true,
+        "limit": 3,
+        "windowSeconds": 10
+      },
+      "webhookCreate": {
+        "enabled": true,
+        "limit": 2,
+        "windowSeconds": 10
+      },
+      "guildUpdate": {
+        "enabled": true
+      }
+    },
+    "updatedAt": 1794322400000
+  }
+}

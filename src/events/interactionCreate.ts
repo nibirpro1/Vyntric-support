@@ -1,4 +1,4 @@
-import { Interaction, MessageFlags } from "discord.js";
+import { EmbedBuilder, Interaction, MessageFlags, TextChannel } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 import { handleTicketComponent } from "../interactions/ticketInteractions";
 import { handleRoleButton } from "../interactions/roleInteractions";
@@ -8,6 +8,7 @@ import { IDS } from "../lib/customIds";
 import { BRAND } from "../lib/brand";
 import { toggleRsvpMeeting } from "../lib/store";
 import { handleGiveawayButton } from "../lib/giveawayManager";
+import { getLoggingConfig } from "../lib/loggingStore";
 
 async function safeError(interaction: Interaction) {
   if (!interaction.isRepliable()) return;
@@ -45,6 +46,53 @@ export default {
           /* interaction expired */
         }
         return;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // COMMAND LOGGING (Dyno-style command audit log)
+      // ─────────────────────────────────────────────────────────────
+      if (interaction.guild) {
+        const config = getLoggingConfig(interaction.guild.id);
+        const cmdChannelId = config.commandLogChannelId || "1508519539388977163";
+        if (config.commandLog && cmdChannelId) {
+          try {
+            const cmdChannel =
+              (interaction.guild.channels.cache.get(cmdChannelId) as TextChannel | undefined) ||
+              ((await interaction.guild.channels.fetch(cmdChannelId).catch(() => null)) as TextChannel | null);
+
+            if (cmdChannel && cmdChannel.isTextBased()) {
+              const optionsParts: string[] = [];
+              for (const opt of interaction.options.data) {
+                if (opt.value !== undefined) {
+                  optionsParts.push(`${opt.name}: ${opt.value}`);
+                } else if (opt.options) {
+                  const subOpts = opt.options
+                    .map((s) => (s.value !== undefined ? `${s.name}: ${s.value}` : s.name))
+                    .join(" ");
+                  optionsParts.push(`${opt.name} ${subOpts}`);
+                }
+              }
+              const optStr = optionsParts.length > 0 ? ` ${optionsParts.join(" ")}` : "";
+
+              const embed = new EmbedBuilder()
+                .setColor(0x0099ff) // Dyno Blue
+                .setAuthor({
+                  name: interaction.user.tag,
+                  iconURL: interaction.user.displayAvatarURL(),
+                })
+                .setDescription(
+                  `Used \`${interaction.commandName}\` command in <#${interaction.channelId}>\n` +
+                    `\`/${interaction.commandName}${optStr}\``
+                )
+                .setFooter({ text: `${interaction.user.id}` })
+                .setTimestamp();
+
+              await cmdChannel.send({ embeds: [embed] }).catch(() => {});
+            }
+          } catch (err) {
+            console.error("[log:command:error]", err);
+          }
+        }
       }
 
       try {

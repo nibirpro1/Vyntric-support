@@ -9,6 +9,7 @@ import { getAutoModConfig } from "../lib/automodStore";
 import { findMatchingResponse } from "../lib/autoResponderStore";
 import { findTicketByChannel, getSettings } from "../lib/store";
 import { BRAND } from "../lib/brand";
+import { cacheMessage } from "../lib/loggingStore";
 
 // In-memory spam tracker: userId -> timestamp[]
 const userMessageTimes: Map<string, number[]> = new Map();
@@ -41,6 +42,9 @@ export default {
     const guild = message.guild;
     const member = message.member;
     const content = message.content;
+
+    // Cache message for Carl-bot style edit/delete audit logging
+    cacheMessage(message);
 
     // ─────────────────────────────────────────────────────────────
     // 1. AUTOMOD SYSTEM

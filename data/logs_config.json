@@ -1,0 +1,13 @@
+{
+  "1507706011622965258": {
+    "guildId": "1507706011622965258",
+    "logChannelId": "1548374744695447623",
+    "messageLogChannelId": "1548374744695447623",
+    "commandLogChannelId": "1508519539388977163",
+    "messageDelete": true,
+    "messageUpdate": true,
+    "commandLog": true,
+    "memberUpdate": true,
+    "updatedAt": 1794332400000
+  }
+}

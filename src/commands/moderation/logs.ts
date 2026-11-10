@@ -16,18 +16,25 @@ import { BRAND } from "../../lib/brand";
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("logs")
-    .setDescription("Configure Carl-bot style moderation & audit logging")
+    .setDescription("Configure Carl-bot style message & command logging")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName("setup")
-        .setDescription("Set the destination channel for audit logs")
+        .setDescription("Set channels for message edit/delete logs and command logs")
         .addChannelOption((opt) =>
           opt
-            .setName("channel")
-            .setDescription("The log channel")
+            .setName("message-channel")
+            .setDescription("Channel for message edit & delete logs (e.g. # messege)")
             .addChannelTypes(ChannelType.GuildText)
-            .setRequired(true)
+            .setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("command-channel")
+            .setDescription("Channel for bot command execution logs (e.g. # command-log)")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
         )
     )
     .addSubcommand((sub) =>
@@ -42,6 +49,7 @@ const command: Command = {
             .addChoices(
               { name: "Message Deletes", value: "messageDelete" },
               { name: "Message Edits", value: "messageUpdate" },
+              { name: "Command Executions", value: "commandLog" },
               { name: "Member Updates", value: "memberUpdate" }
             )
         )
@@ -50,7 +58,7 @@ const command: Command = {
         )
     )
     .addSubcommand((sub) =>
-      sub.setName("status").setDescription("View current logging configuration")
+      sub.setName("status").setDescription("View current Carl-bot logging configuration")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -62,17 +70,47 @@ const command: Command = {
 
     switch (sub) {
       case "setup": {
-        const channel = interaction.options.getChannel("channel", true) as TextChannel;
-        updateLoggingConfig(guildId, { logChannelId: channel.id });
+        const msgChannel = interaction.options.getChannel("message-channel") as TextChannel | null;
+        const cmdChannel = interaction.options.getChannel("command-channel") as TextChannel | null;
 
-        await interaction.reply({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(BRAND.colors.success)
-              .setTitle("✅ Audit Logging Configured")
-              .setDescription(`Audit logs will now be sent to <#${channel.id}>.`),
-          ],
-        });
+        if (!msgChannel && !cmdChannel) {
+          await interaction.reply({
+            content: "⚠️ Please specify at least one channel to configure (`message-channel` or `command-channel`).",
+          });
+          return;
+        }
+
+        const updates: any = {};
+        if (msgChannel) {
+          updates.messageLogChannelId = msgChannel.id;
+          updates.logChannelId = msgChannel.id;
+        }
+        if (cmdChannel) {
+          updates.commandLogChannelId = cmdChannel.id;
+        }
+
+        const updated = updateLoggingConfig(guildId, updates);
+
+        const embed = new EmbedBuilder()
+          .setColor(BRAND.colors.success)
+          .setTitle("✅ Audit Logging Channels Configured")
+          .setDescription("Your logging channels have been updated successfully.")
+          .addFields(
+            {
+              name: "💬 Message Logs (Edits / Deletes)",
+              value: updated.messageLogChannelId ? `<#${updated.messageLogChannelId}>` : "_None_",
+              inline: true,
+            },
+            {
+              name: "⚡ Command Logs",
+              value: updated.commandLogChannelId ? `<#${updated.commandLogChannelId}>` : "_None_",
+              inline: true,
+            }
+          )
+          .setFooter({ text: `${BRAND.name} Logging System` })
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
         break;
       }
 
@@ -95,11 +133,17 @@ const command: Command = {
       case "status": {
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
-          .setTitle("📋 Audit Logging Status")
+          .setTitle("📋 Carl-bot Style Logging Status")
+          .setDescription("Real-time logging of messages, edits, deletions, and commands.")
           .addFields(
             {
-              name: "📢 Log Channel",
-              value: config.logChannelId ? `<#${config.logChannelId}>` : "❌ Disabled",
+              name: "💬 Message Log Channel",
+              value: config.messageLogChannelId ? `<#${config.messageLogChannelId}>` : "❌ Disabled",
+              inline: true,
+            },
+            {
+              name: "⚡ Command Log Channel",
+              value: config.commandLogChannelId ? `<#${config.commandLogChannelId}>` : "❌ Disabled",
               inline: true,
             },
             {
@@ -111,9 +155,15 @@ const command: Command = {
               name: "✏️ Edited Messages",
               value: config.messageUpdate ? "✅ Enabled" : "❌ Disabled",
               inline: true,
+            },
+            {
+              name: "💻 Command Executions",
+              value: config.commandLog ? "✅ Enabled" : "❌ Disabled",
+              inline: true,
             }
           )
-          .setFooter({ text: "Use /logs setup to change channel" });
+          .setFooter({ text: "Use /logs setup to change channels" })
+          .setTimestamp();
 
         await interaction.reply({ embeds: [embed] });
         break;

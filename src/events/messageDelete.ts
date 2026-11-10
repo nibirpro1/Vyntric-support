@@ -1,42 +1,65 @@
-import { Events, Message, EmbedBuilder, TextChannel } from "discord.js";
-import { getLoggingConfig } from "../lib/loggingStore";
-import { BRAND } from "../lib/brand";
+import { Events, Message, EmbedBuilder, TextChannel, PartialMessage } from "discord.js";
+import { getCachedMessage, getLoggingConfig } from "../lib/loggingStore";
 
 export default {
   name: Events.MessageDelete,
   once: false,
-  async execute(message: Message) {
-    if (!message.guild || message.author?.bot) return;
+  async execute(message: Message | PartialMessage) {
+    if (!message.guild) return;
+
+    const cached = getCachedMessage(message.id);
+
+    // If author is known to be a bot, skip
+    if (message.author?.bot) return;
 
     const config = getLoggingConfig(message.guild.id);
-    if (!config.logChannelId || !config.messageDelete) return;
+    const targetChannelId = config.messageLogChannelId || config.logChannelId;
+    if (!targetChannelId || !config.messageDelete) return;
 
     try {
-      const channel = message.guild.channels.cache.get(config.logChannelId) as TextChannel | undefined;
+      const channel =
+        (message.guild.channels.cache.get(targetChannelId) as TextChannel | undefined) ||
+        ((await message.guild.channels.fetch(targetChannelId).catch(() => null)) as TextChannel | null);
+
       if (!channel || !channel.isTextBased()) return;
 
-      const embed = new EmbedBuilder()
-        .setColor(BRAND.colors.danger)
-        .setAuthor({
-          name: `${message.author?.tag || "Unknown User"} • Message Deleted`,
-          iconURL: message.author?.displayAvatarURL(),
-        })
-        .setDescription(
-          [
-            `👤 **Author:** ${message.author} (\`${message.author?.id}\`)`,
-            `📍 **Channel:** ${message.channel}`,
-            "",
-            "**Deleted Content:**",
-            `\`\`\`\n${message.content ? message.content.slice(0, 1000) : "[No text content]"}\n\`\`\``,
-          ].join("\n")
-        )
-        .setFooter({ text: `Message ID: ${message.id}` })
-        .setTimestamp();
+      const authorTag = message.author?.tag || cached?.authorTag || "Unknown User";
+      const authorId = message.author?.id || cached?.authorId || "Unknown ID";
+      const authorAvatar =
+        message.author?.displayAvatarURL() ||
+        cached?.authorAvatar ||
+        undefined;
 
-      if (message.attachments.size > 0) {
-        const attachmentUrls = message.attachments.map((a) => a.url).join("\n");
-        embed.addFields({ name: `📎 Attachments (${message.attachments.size})`, value: attachmentUrls });
+      const content = message.content || cached?.content || "_No text content_";
+
+      const embed = new EmbedBuilder()
+        .setColor(0xed4245) // Carl-bot Red for Message Delete
+        .setAuthor({
+          name: authorTag,
+          iconURL: authorAvatar,
+        });
+
+      let description = `**Message deleted in <#${message.channelId}>**\n\n${content}\n\n**Message ID:** ${message.id}`;
+
+      // Attachments
+      const attachments: string[] = [];
+      if (message.attachments && message.attachments.size > 0) {
+        message.attachments.forEach((a) => {
+          attachments.push(`[${a.name}](${a.url})`);
+        });
+      } else if (cached && cached.attachments.length > 0) {
+        cached.attachments.forEach((a) => {
+          attachments.push(`[${a.name}](${a.url})`);
+        });
       }
+
+      if (attachments.length > 0) {
+        description += `\n**Attachments:**\n${attachments.join("\n")}`;
+      }
+
+      embed.setDescription(description);
+      embed.setFooter({ text: `ID: ${authorId}` });
+      embed.setTimestamp();
 
       await channel.send({ embeds: [embed] });
     } catch (err) {

@@ -10,16 +10,24 @@ export default {
   name: Events.GuildMemberAdd,
   once: false,
   async execute(member: GuildMember) {
+    console.log(`[welcome] Member joined: ${member.user.tag} (${member.id}) bot=${member.user.bot}`);
+
     const config = getWelcomeConfig(member.guild.id);
-    if (!config.enabled && !config.channelId && config.autoRoleIds.length === 0) return;
+    if (!config.enabled && !config.channelId && (!config.autoRoleIds || config.autoRoleIds.length === 0)) {
+      console.log(`[welcome] Welcome disabled or not configured for guild ${member.guild.id}`);
+      return;
+    }
 
     // 1. Assign Auto-Roles
     if (config.autoRoleIds && config.autoRoleIds.length > 0) {
       for (const roleId of config.autoRoleIds) {
         try {
-          const role = member.guild.roles.cache.get(roleId);
+          const role =
+            member.guild.roles.cache.get(roleId) ||
+            (await member.guild.roles.fetch(roleId).catch(() => null));
           if (role && !member.roles.cache.has(roleId)) {
             await member.roles.add(role, "Vyntric Auto-Role on join");
+            console.log(`[welcome:autorole] Assigned ${role.name} to ${member.user.tag}`);
           }
         } catch (err: any) {
           console.warn(`[welcome:autorole] Could not assign role ${roleId} to ${member.user.tag}:`, err.message);
@@ -27,10 +35,13 @@ export default {
       }
     }
 
-    // 2. Send Welcome Channel Announcement with Animated Vyntric Red Banner
+    // 2. Send Welcome Channel Announcement
     if (config.channelId) {
       try {
-        const channel = member.guild.channels.cache.get(config.channelId) as TextChannel | undefined;
+        const channel =
+          (member.guild.channels.cache.get(config.channelId) as TextChannel | undefined) ||
+          (await member.guild.channels.fetch(config.channelId).catch(() => null) as TextChannel | null);
+
         if (channel && channel.isTextBased()) {
           const formattedDesc = formatWelcomeText(config.message, member);
 
@@ -65,14 +76,17 @@ export default {
             embeds: [embed],
             files,
           });
+          console.log(`[welcome] Sent welcome message to #${channel.name} for ${member.user.tag}`);
+        } else {
+          console.warn(`[welcome] Channel ${config.channelId} not found or not text-based`);
         }
       } catch (err) {
         console.error("[welcome:channel:error]", err);
       }
     }
 
-    // 3. Send DM Welcome Message
-    if (config.dmEnabled && config.dmMessage) {
+    // 3. Send DM Welcome Message (skip bots since bots cannot receive user DMs)
+    if (config.dmEnabled && config.dmMessage && !member.user.bot) {
       try {
         const formattedDm = formatWelcomeText(config.dmMessage, member);
         const dmEmbed = new EmbedBuilder()
@@ -93,6 +107,7 @@ export default {
         }
 
         await member.send({ embeds: [dmEmbed], files: dmFiles });
+        console.log(`[welcome] Sent welcome DM to ${member.user.tag}`);
       } catch {
         // Member has DMs closed
       }

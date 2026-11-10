@@ -9,7 +9,7 @@ import { getAutoModConfig } from "../lib/automodStore";
 import { findMatchingResponse } from "../lib/autoResponderStore";
 import { findTicketByChannel, getSettings } from "../lib/store";
 import { BRAND } from "../lib/brand";
-import { cacheMessage, logCommandExecution } from "../lib/loggingStore";
+import { cacheMessage, logCommandExecution, logMessageSent } from "../lib/loggingStore";
 
 // In-memory spam tracker: userId -> timestamp[]
 const userMessageTimes: Map<string, number[]> = new Map();
@@ -56,6 +56,9 @@ export default {
 
     // Cache message for Carl-bot style edit/delete audit logging
     cacheMessage(message);
+
+    // Carl-bot style Message Sent audit logging (logs all messages sent in the server to # messege)
+    logMessageSent(message);
 
     // ─────────────────────────────────────────────────────────────
     // COMMAND AUDIT LOGGING (Prefix commands: !, ?, ., -, +, $, ;, /, etc.)

@@ -279,7 +279,7 @@ const command: Command = {
           return;
         }
 
-        const includeRules = interaction.options.getBoolean("include-rules") ?? true;
+        const includeRules = interaction.options.getBoolean("include-rules") ?? false;
         const selectedMode =
           (interaction.options.getString("mode") as "reaction" | "button" | "both") ||
           config.mode ||
@@ -299,34 +299,24 @@ const command: Command = {
           .setTitle(config.title || DEFAULT_VERIFICATION_TITLE);
 
         let desc =
-          `Welcome to **${interaction.guild.name}**!\n\n` +
-          `To gain access to all channels, view the community, and participate in discussions, you must complete member verification.\n\n`;
+          `Welcome to **${interaction.guild.name}**!\n` +
+          `React with the **${emoji}** emoji below to verify and unlock full access.`;
 
-        if (selectedMode === "reaction") {
-          desc +=
-            `📋 **How to verify:**\n` +
-            `React with the **${emoji}** emoji below to verify and unlock full access to the server.\n\n` +
-            `*(No links or external authorizations needed — simply react with ${emoji} below!)*`;
+        if (selectedMode === "button") {
+          desc =
+            `Welcome to **${interaction.guild.name}**!\n` +
+            `Click the **Verify** button below to unlock full access.`;
         } else if (selectedMode === "both") {
-          desc +=
-            `📋 **How to verify:**\n` +
-            `• React with the **${emoji}** emoji below, **OR**\n` +
-            `• Click the **Verify** button below to complete verification.`;
-        } else {
-          desc += `Simply click the **Verify** button below to unlock full access to the server.`;
+          desc =
+            `Welcome to **${interaction.guild.name}**!\n` +
+            `React with **${emoji}** or click **Verify** below to unlock full access.`;
         }
 
         if (includeRules) {
           desc +=
-            `\n\n📌 **Rules & Guidelines:**\n` +
-            `• Follow the official [Discord Terms of Service](https://discord.com/terms) & [Community Guidelines](https://discord.com/guidelines).\n` +
-            `• Be respectful to all members and staff. Zero tolerance for harassment or hate speech.\n` +
-            `• No advertising, unsolicited DMs, spam, or malicious links.\n` +
-            `• No NSFW content or disruptive behavior.`;
-        }
-
-        if (config.waitMinutes > 0) {
-          desc += `\n\n⏳ *Note: Newly joined members must wait **${config.waitMinutes} minutes** after joining before verification unlocks.*`;
+            `\n\n📌 **Rules:**\n` +
+            `• Follow Discord ToS & Guidelines.\n` +
+            `• Be respectful. No toxicity or spam.`;
         }
 
         embed.setDescription(desc);

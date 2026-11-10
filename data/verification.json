@@ -3,7 +3,7 @@
     "guildId": "1507706011622965258",
     "enabled": true,
     "channelId": "1560933139134545950",
-    "messageId": "1569763170740871260",
+    "messageId": "1569786770969591911",
     "mode": "reaction",
     "reactionEmoji": "✅",
     "roleId": "1569012828394754058",
@@ -12,8 +12,8 @@
     "waitMinutes": 0,
     "bannerUrl": null,
     "title": "🔐 SERVER VERIFICATION",
-    "description": "Welcome to **Vyntric**!\n\nTo gain access to all channels, view the community, and participate in discussions, you must complete member verification.\n\n📋 **How to verify:**\nReact with the **✅** emoji below to verify and unlock full access to the server.\n\n*(No links, buttons, or external authorizations needed — simply react with ✅ below!)*\n\n📌 **Rules & Guidelines:**\n• Follow the official [Discord Terms of Service](https://discord.com/terms) & [Community Guidelines](https://discord.com/guidelines).\n• Be respectful to all members and staff. Zero tolerance for harassment or hate speech.\n• No advertising, unsolicited DMs, spam, or malicious links.\n• No NSFW content or disruptive behavior.",
+    "description": "Welcome to **Vyntric**!\nReact with the **✅** emoji below to verify and unlock full access.",
     "buttonLabel": "Verify",
-    "updatedAt": 1794331105166
+    "updatedAt": 1794336734639
   }
 }

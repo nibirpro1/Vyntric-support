@@ -47,6 +47,7 @@ const command: Command = {
             .setDescription("Log event type")
             .setRequired(true)
             .addChoices(
+              { name: "Message Sends", value: "messageSend" },
               { name: "Message Deletes", value: "messageDelete" },
               { name: "Message Edits", value: "messageUpdate" },
               { name: "Command Executions", value: "commandLog" },
@@ -144,6 +145,11 @@ const command: Command = {
             {
               name: "⚡ Command Log Channel",
               value: config.commandLogChannelId ? `<#${config.commandLogChannelId}>` : "❌ Disabled",
+              inline: true,
+            },
+            {
+              name: "📨 Sent Messages",
+              value: config.messageSend ? "✅ Enabled" : "❌ Disabled",
               inline: true,
             },
             {

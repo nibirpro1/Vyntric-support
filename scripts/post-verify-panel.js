@@ -10,27 +10,20 @@ const CHANNEL_ID = '1560933139134545950'; // # 〢verify
 const BANNER_PATH = path.resolve(__dirname, '..', 'assets', 'banners', 'vyntric-verify.png');
 
 async function main() {
-  console.log('Posting verification panel to channel:', CHANNEL_ID);
+  console.log('Posting concise verification panel to channel:', CHANNEL_ID);
 
   const bannerExists = fs.existsSync(BANNER_PATH);
-  console.log('Banner exists:', bannerExists, BANNER_PATH);
+
+  const shortDescription =
+    `Welcome to **Vyntric**!\n` +
+    `React with the **✅** emoji below to verify and unlock full access.`;
 
   const embed = {
     title: '🔐 SERVER VERIFICATION',
     color: 0xb1121f, // Crimson Red
-    description:
-      `Welcome to **Vyntric**!\n\n` +
-      `To gain access to all channels, view the community, and participate in discussions, you must complete member verification.\n\n` +
-      `📋 **How to verify:**\n` +
-      `React with the **✅** emoji below to verify and unlock full access to the server.\n\n` +
-      `*(No links, buttons, or external authorizations needed — simply react with ✅ below!)*\n\n` +
-      `📌 **Rules & Guidelines:**\n` +
-      `• Follow the official [Discord Terms of Service](https://discord.com/terms) & [Community Guidelines](https://discord.com/guidelines).\n` +
-      `• Be respectful to all members and staff. Zero tolerance for harassment or hate speech.\n` +
-      `• No advertising, unsolicited DMs, spam, or malicious links.\n` +
-      `• No NSFW content or disruptive behavior.`,
+    description: shortDescription,
     footer: {
-      text: 'Plugsy Security • React with ✅ below to verify',
+      text: 'Plugsy Security • React with ✅ below',
     },
     timestamp: new Date().toISOString(),
   };
@@ -46,15 +39,13 @@ async function main() {
     });
   }
 
-  // Clear any old messages in verify channel if any
+  // Clear old messages in verify channel
   const oldMessages = await rest.get(Routes.channelMessages(CHANNEL_ID), { query: new URLSearchParams({ limit: '10' }) });
-  console.log('Found existing messages:', oldMessages.length);
   for (const msg of oldMessages) {
     await rest.delete(Routes.channelMessage(CHANNEL_ID, msg.id)).catch(() => {});
-    console.log('Deleted old message:', msg.id);
   }
 
-  // Send message
+  // Send concise message
   const payload = {
     embeds: [embed],
     components: [], // NO buttons!
@@ -65,7 +56,7 @@ async function main() {
     files: files.length > 0 ? files : undefined,
   });
 
-  console.log('Verification panel sent! Message ID:', message.id);
+  console.log('Concise verification panel sent! Message ID:', message.id);
 
   // React with ✅
   const emoji = encodeURIComponent('✅');
@@ -91,7 +82,7 @@ async function main() {
     waitMinutes: 0,
     bannerUrl: null,
     title: '🔐 SERVER VERIFICATION',
-    description: embed.description,
+    description: shortDescription,
     buttonLabel: 'Verify',
     updatedAt: Date.now(),
   };

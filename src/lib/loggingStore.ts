@@ -19,6 +19,7 @@ export interface LoggingConfig {
   logChannelId: string | null;            // General fallback
   messageLogChannelId: string | null;     // Carl-bot style message edit/delete log (e.g. # messege)
   commandLogChannelId: string | null;     // Dyno style command log (e.g. # command-log)
+  messageSend: boolean;
   messageDelete: boolean;
   messageUpdate: boolean;
   commandLog: boolean;
@@ -70,6 +71,7 @@ export function getLoggingConfig(guildId: string): LoggingConfig {
       logChannelId: "1548374744695447623",
       messageLogChannelId: "1548374744695447623", // # messege
       commandLogChannelId: "1508519539388977163", // # command-log
+      messageSend: true,
       messageDelete: true,
       messageUpdate: true,
       commandLog: true,
@@ -84,6 +86,9 @@ export function getLoggingConfig(guildId: string): LoggingConfig {
   }
   if (!store[guildId].commandLogChannelId) {
     store[guildId].commandLogChannelId = "1508519539388977163";
+  }
+  if (store[guildId].messageSend === undefined) {
+    store[guildId].messageSend = true;
   }
   if (store[guildId].commandLog === undefined) {
     store[guildId].commandLog = true;
@@ -179,4 +184,69 @@ export async function logCommandExecution(options: {
     console.error("[log:commandExecution:error]", err);
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// MESSAGE SENT LOGGER (Carl-bot style: all server messages)
+// ─────────────────────────────────────────────────────────────
+export async function logMessageSent(message: Message) {
+  if (!message.guild || message.author.id === message.client.user?.id) return;
+
+  const config = getLoggingConfig(message.guild.id);
+  const targetChannelId = config.messageLogChannelId || config.logChannelId;
+  if (!targetChannelId || !config.messageSend) return;
+
+  // Prevent self-looping on the log channels
+  const ignoredChannels = [
+    targetChannelId,
+    config.commandLogChannelId,
+    "1508519539388977163", // command-log
+    "1548374744695447623", // messege
+    "1569042414474231988", // log-channel-verify
+    "1508548021808398346", // join-log
+  ];
+  if (ignoredChannels.includes(message.channelId)) return;
+
+  try {
+    const channel =
+      (message.guild.channels.cache.get(targetChannelId) as TextChannel | undefined) ||
+      ((await message.guild.channels.fetch(targetChannelId).catch(() => null)) as TextChannel | null);
+
+    if (!channel || !channel.isTextBased()) return;
+
+    const content = message.content ? message.content.slice(0, 1500) : "_[No text content]_";
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2fbf71) // Carl-bot Green for Message Sent
+      .setAuthor({
+        name: message.author.tag,
+        iconURL: message.author.displayAvatarURL(),
+      })
+      .setDescription(
+        `**Message sent in <#${message.channelId}>** [Jump to Message](${message.url})\n\n${content}`
+      );
+
+    if (message.attachments.size > 0) {
+      const attachments = message.attachments.map((a) => `[${a.name}](${a.url})`).join("\n");
+      embed.addFields({
+        name: `📎 Attachments (${message.attachments.size})`,
+        value: attachments,
+      });
+
+      const firstImage = message.attachments.find(
+        (a) => a.contentType?.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(a.name)
+      );
+      if (firstImage) {
+        embed.setImage(firstImage.url);
+      }
+    }
+
+    embed.setFooter({ text: `ID: ${message.author.id} • Message ID: ${message.id}` });
+    embed.setTimestamp();
+
+    await channel.send({ embeds: [embed] }).catch(() => {});
+  } catch (err) {
+    console.error("[log:messageSent:error]", err);
+  }
+}
+
 

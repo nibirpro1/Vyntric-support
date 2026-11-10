@@ -4,10 +4,11 @@
     "logChannelId": "1548374744695447623",
     "messageLogChannelId": "1548374744695447623",
     "commandLogChannelId": "1508519539388977163",
+    "messageSend": true,
     "messageDelete": true,
     "messageUpdate": true,
     "commandLog": true,
     "memberUpdate": true,
-    "updatedAt": 1794332400000
+    "updatedAt": 1794336500000
   }
 }

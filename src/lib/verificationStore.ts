@@ -59,13 +59,8 @@ function persist() {
 export const DEFAULT_VERIFICATION_TITLE = "🔐 SERVER VERIFICATION";
 
 export const DEFAULT_VERIFICATION_DESC =
-  "Welcome to **{server}**!\n\n" +
-  "To gain full access to the server, view all channels, and chat with members, you must verify yourself.\n\n" +
-  "📋 **How to verify:**\n" +
-  "• React with the **✅** emoji below to verify.\n" +
-  "• By verifying, you agree to comply with our **Server Rules**, **Discord Terms of Service**, and **Community Guidelines**.\n\n" +
-  "*(No links or external authorizations needed — simply react with ✅ below!)*\n\n" +
-  "⚠️ *Automated security checks are enabled. Any attempt to raid or bypass verification will result in an immediate ban.*";
+  "Welcome to **{server}**!\n" +
+  "React with the **✅** emoji below to verify and unlock full access.";
 
 export function getVerificationConfig(guildId: string): VerificationConfig {
   if (!store[guildId]) {

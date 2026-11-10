@@ -5,14 +5,17 @@ export interface VerificationConfig {
   guildId: string;
   enabled: boolean;
   channelId: string | null;
-  roleId: string | null;           // Role given upon verification
-  unverifiedRoleId: string | null; // Role removed upon verification (optional)
-  logChannelId: string | null;     // Channel to send verification audit logs (optional)
-  waitMinutes: number;             // Minimum wait time (minutes) after joining before member can verify
-  bannerUrl: string | null;        // Custom banner image URL or null for default Vyntric banner
-  title: string;                   // Embed title
-  description: string;             // Embed description
-  buttonLabel: string;             // Button label (e.g. "Verify" or "Verify Now")
+  messageId: string | null;           // Active panel message ID
+  mode: "reaction" | "button" | "both"; // Defaults to "reaction"
+  reactionEmoji: string;               // Emoji to react with, defaults to "✅"
+  roleId: string | null;               // Role given upon verification
+  unverifiedRoleId: string | null;     // Role removed upon verification (optional)
+  logChannelId: string | null;         // Channel to send verification audit logs (optional)
+  waitMinutes: number;                 // Minimum wait time (minutes) after joining before member can verify
+  bannerUrl: string | null;            // Custom banner image URL or null for default Vyntric banner
+  title: string;                       // Embed title
+  description: string;                 // Embed description
+  buttonLabel: string;                 // Button label (if button mode used)
   updatedAt: number;
 }
 
@@ -59,8 +62,9 @@ export const DEFAULT_VERIFICATION_DESC =
   "Welcome to **{server}**!\n\n" +
   "To gain full access to the server, view all channels, and chat with members, you must verify yourself.\n\n" +
   "📋 **How to verify:**\n" +
-  "• Click the **Verify** button below.\n" +
+  "• React with the **✅** emoji below to verify.\n" +
   "• By verifying, you agree to comply with our **Server Rules**, **Discord Terms of Service**, and **Community Guidelines**.\n\n" +
+  "*(No links or external authorizations needed — simply react with ✅ below!)*\n\n" +
   "⚠️ *Automated security checks are enabled. Any attempt to raid or bypass verification will result in an immediate ban.*";
 
 export function getVerificationConfig(guildId: string): VerificationConfig {
@@ -69,6 +73,9 @@ export function getVerificationConfig(guildId: string): VerificationConfig {
       guildId,
       enabled: false,
       channelId: null,
+      messageId: null,
+      mode: "reaction",
+      reactionEmoji: "✅",
       roleId: null,
       unverifiedRoleId: null,
       logChannelId: null,
@@ -80,6 +87,11 @@ export function getVerificationConfig(guildId: string): VerificationConfig {
       updatedAt: Date.now(),
     };
   }
+  // Ensure default new properties if config exists
+  if (!store[guildId].mode) store[guildId].mode = "reaction";
+  if (!store[guildId].reactionEmoji) store[guildId].reactionEmoji = "✅";
+  if (store[guildId].messageId === undefined) store[guildId].messageId = null;
+
   return store[guildId];
 }
 

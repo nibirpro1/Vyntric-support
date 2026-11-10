@@ -84,7 +84,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("setup")
-        .setDescription("Configure verified role, verification channel, and cooldown")
+        .setDescription("Configure verified role, verification channel, mode, and cooldown")
         .addRoleOption((opt) =>
           opt
             .setName("role")
@@ -96,6 +96,17 @@ const command: Command = {
             .setName("channel")
             .setDescription("The channel where members will verify")
             .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("mode")
+            .setDescription("Verification style: Reaction (default, trusted) or Button")
+            .addChoices(
+              { name: "Reaction (React with ✅ to verify - Safe & Trusted)", value: "reaction" },
+              { name: "Button (Click button to verify)", value: "button" },
+              { name: "Both (Reaction & Button)", value: "both" }
+            )
             .setRequired(false)
         )
         .addRoleOption((opt) =>
@@ -123,7 +134,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("panel")
-        .setDescription("Send the official interactive verification panel with button")
+        .setDescription("Send the official interactive verification panel")
         .addChannelOption((opt) =>
           opt
             .setName("channel")
@@ -131,10 +142,21 @@ const command: Command = {
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(false)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName("mode")
+            .setDescription("Override verification mode for this panel (default: Reaction)")
+            .addChoices(
+              { name: "Reaction (React with ✅ to verify - No buttons)", value: "reaction" },
+              { name: "Button (Click button to verify)", value: "button" },
+              { name: "Both (Reaction & Button)", value: "both" }
+            )
+            .setRequired(false)
+        )
         .addBooleanOption((opt) =>
           opt
             .setName("include-rules")
-            .setDescription("Whether to include the Server Rules summary above the verify button")
+            .setDescription("Whether to include the Server Rules summary")
             .setRequired(false)
         )
     )
@@ -179,6 +201,7 @@ const command: Command = {
       case "setup": {
         const role = interaction.options.getRole("role", true);
         const channel = interaction.options.getChannel("channel") as TextChannel | null;
+        const mode = (interaction.options.getString("mode") as "reaction" | "button" | "both") || "reaction";
         const unverifiedRole = interaction.options.getRole("unverified-role");
         const waitMinutes = interaction.options.getInteger("wait-minutes");
         const logChannel = interaction.options.getChannel("log-channel") as TextChannel | null;
@@ -186,6 +209,8 @@ const command: Command = {
         updateVerificationConfig(guildId, {
           enabled: true,
           roleId: role.id,
+          mode,
+          reactionEmoji: "✅",
           ...(channel ? { channelId: channel.id } : {}),
           ...(unverifiedRole !== undefined ? { unverifiedRoleId: unverifiedRole?.id ?? null } : {}),
           ...(waitMinutes !== null ? { waitMinutes } : {}),
@@ -201,10 +226,20 @@ const command: Command = {
               .setTitle("✅ Verification System Configured")
               .setDescription(
                 `The verification system for **${interaction.guild.name}** has been successfully updated!\n\n` +
-                `Next step: Run \`/verify panel\` in your verification channel to post the interactive button.`
+                `Next step: Run \`/verify panel\` in your verification channel to post the panel.`
               )
               .addFields(
                 { name: "🛡️ Verified Role", value: `<@&${updated.roleId}>`, inline: true },
+                {
+                  name: "⚙️ Mode",
+                  value:
+                    updated.mode === "button"
+                      ? "🔘 Button Only"
+                      : updated.mode === "both"
+                      ? "🔘+✅ Both (Button & Reaction)"
+                      : "✅ Reaction (No Buttons)",
+                  inline: true,
+                },
                 {
                   name: "📢 Channel",
                   value: updated.channelId ? `<#${updated.channelId}>` : "Not set (set during `/verify panel`)",
@@ -245,6 +280,10 @@ const command: Command = {
         }
 
         const includeRules = interaction.options.getBoolean("include-rules") ?? true;
+        const selectedMode =
+          (interaction.options.getString("mode") as "reaction" | "button" | "both") ||
+          config.mode ||
+          "reaction";
 
         if (!config.roleId) {
           await interaction.editReply({
@@ -253,8 +292,7 @@ const command: Command = {
           return;
         }
 
-        // Save channel if not already set
-        updateVerificationConfig(guildId, { channelId: targetChannel.id, enabled: true });
+        const emoji = config.reactionEmoji || "✅";
 
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
@@ -262,8 +300,21 @@ const command: Command = {
 
         let desc =
           `Welcome to **${interaction.guild.name}**!\n\n` +
-          `To gain access to all channels, view the community, and participate in discussions, you must complete member verification.\n\n` +
-          `Simply click the **Verify** button below to unlock full access to the server.`;
+          `To gain access to all channels, view the community, and participate in discussions, you must complete member verification.\n\n`;
+
+        if (selectedMode === "reaction") {
+          desc +=
+            `📋 **How to verify:**\n` +
+            `React with the **${emoji}** emoji below to verify and unlock full access to the server.\n\n` +
+            `*(No links or external authorizations needed — simply react with ${emoji} below!)*`;
+        } else if (selectedMode === "both") {
+          desc +=
+            `📋 **How to verify:**\n` +
+            `• React with the **${emoji}** emoji below, **OR**\n` +
+            `• Click the **Verify** button below to complete verification.`;
+        } else {
+          desc += `Simply click the **Verify** button below to unlock full access to the server.`;
+        }
 
         if (includeRules) {
           desc +=
@@ -275,10 +326,9 @@ const command: Command = {
         }
 
         if (config.waitMinutes > 0) {
-          desc += `\n\n⏳ *Note: Newly joined members must wait **${config.waitMinutes} minutes** after joining before the Verify button unlocks.*`;
+          desc += `\n\n⏳ *Note: Newly joined members must wait **${config.waitMinutes} minutes** after joining before verification unlocks.*`;
         }
 
-        desc += `\n\n*Click below to accept our rules and verify:*`;
         embed.setDescription(desc);
 
         const files: AttachmentBuilder[] = [];
@@ -291,27 +341,52 @@ const command: Command = {
         }
 
         embed.setFooter({
-          text: `${BRAND.name} Security • Click the button below`,
+          text:
+            selectedMode === "reaction"
+              ? `${BRAND.name} Security • React with ${emoji} below`
+              : `${BRAND.name} Security • Click or react below`,
           iconURL: interaction.client.user?.displayAvatarURL(),
         });
 
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(IDS.verifyButton)
-            .setLabel(config.buttonLabel || "Verify")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("🛡️")
-        );
+        const components: ActionRowBuilder<ButtonBuilder>[] = [];
+        if (selectedMode === "button" || selectedMode === "both") {
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(IDS.verifyButton)
+              .setLabel(config.buttonLabel || "Verify")
+              .setStyle(ButtonStyle.Success)
+              .setEmoji("🛡️")
+          );
+          components.push(row);
+        }
 
         try {
-          await targetChannel.send({
+          const sentMsg = await targetChannel.send({
             embeds: [embed],
-            components: [row],
+            components,
             files,
           });
 
+          // Auto-react with verification emoji for seamless reaction verification
+          if (selectedMode === "reaction" || selectedMode === "both") {
+            await sentMsg.react(emoji).catch(() => {});
+          }
+
+          // Save active message and channel config
+          updateVerificationConfig(guildId, {
+            channelId: targetChannel.id,
+            messageId: sentMsg.id,
+            mode: selectedMode,
+            reactionEmoji: emoji,
+            enabled: true,
+          });
+
           await interaction.editReply({
-            content: `✅ Verification panel has been successfully posted in <#${targetChannel.id}>!`,
+            content:
+              `✅ Verification panel has been successfully posted in <#${targetChannel.id}>!\n` +
+              (selectedMode === "reaction"
+                ? `👉 **Mode:** Reaction verification active (${emoji}). Members can now simply react with ${emoji} to verify.`
+                : `👉 **Mode:** ${selectedMode}`),
           });
         } catch (err: any) {
           console.error("[verify:panel:send]", err);
@@ -360,20 +435,7 @@ const command: Command = {
             .setColor(BRAND.colors.primary)
             .setTitle("✅ Verification Banner Reset")
             .setDescription("The verification panel has been reset to the default high-tech Vyntric crimson banner.");
-
-          const files: AttachmentBuilder[] = [];
-          if (fs.existsSync(DEFAULT_VERIFY_BANNER)) {
-            const attachment = new AttachmentBuilder(DEFAULT_VERIFY_BANNER, { name: "vyntric-verify.png" });
-            files.push(attachment);
-            embed.setImage("attachment://vyntric-verify.png");
-          }
-
-          await interaction.editReply({ embeds: [embed], files });
-          return;
-        }
-
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-          await interaction.editReply({ content: "⚠️ Banner must be a valid HTTP or HTTPS URL." });
+          await interaction.editReply({ embeds: [embed] });
           return;
         }
 
@@ -397,12 +459,19 @@ const command: Command = {
         const channelText = config.channelId ? `<#${config.channelId}>` : "❌ _Not set_";
         const logText = config.logChannelId ? `<#${config.logChannelId}>` : "_None_";
         const waitText = config.waitMinutes > 0 ? `⏱️ **${config.waitMinutes} minute(s)**` : "⚡ Instant (0 min)";
+        const modeText =
+          config.mode === "button"
+            ? "🔘 Button Only"
+            : config.mode === "both"
+            ? `🔘+${config.reactionEmoji || "✅"} Both`
+            : `✅ Reaction (${config.reactionEmoji || "✅"}) - No Buttons`;
 
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
           .setTitle(`🛡️ ${BRAND.name} Verification System Status`)
           .addFields(
             { name: "🔘 Status", value: config.enabled ? "✅ Enabled" : "⚠️ Disabled", inline: true },
+            { name: "⚙️ Mode", value: modeText, inline: true },
             { name: "🛡️ Verified Role", value: roleText, inline: true },
             { name: "📢 Verification Channel", value: channelText, inline: true },
             { name: "⏳ Cooldown Wait", value: waitText, inline: true },
@@ -432,6 +501,9 @@ const command: Command = {
       case "test": {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+        const emoji = config.reactionEmoji || "✅";
+        const mode = config.mode || "reaction";
+
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
           .setTitle(`[TEST PREVIEW] ${config.title || DEFAULT_VERIFICATION_TITLE}`)
@@ -439,7 +511,9 @@ const command: Command = {
             `Welcome to **${interaction.guild.name}**!\n\n` +
             `This is an administrator preview of how members will see the verification panel.\n\n` +
             `📋 **How to verify:**\n` +
-            `Click the **Verify** button below to complete verification and unlock server access.\n\n` +
+            (mode === "reaction"
+              ? `React with the **${emoji}** emoji below to complete verification and unlock server access.\n\n*(No buttons or external links)*\n\n`
+              : `Click the **Verify** button below to complete verification and unlock server access.\n\n`) +
             (config.waitMinutes > 0
               ? `⏳ *Security Cooldown: New members must wait ${config.waitMinutes} minute(s) before verifying.*\n\n`
               : "") +
@@ -455,17 +529,21 @@ const command: Command = {
           embed.setImage(config.bannerUrl);
         }
 
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(IDS.verifyButton)
-            .setLabel(config.buttonLabel || "Verify")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("🛡️")
-        );
+        const components: ActionRowBuilder<ButtonBuilder>[] = [];
+        if (mode === "button" || mode === "both") {
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(IDS.verifyButton)
+              .setLabel(config.buttonLabel || "Verify")
+              .setStyle(ButtonStyle.Success)
+              .setEmoji("🛡️")
+          );
+          components.push(row);
+        }
 
         await interaction.editReply({
           embeds: [embed],
-          components: [row],
+          components,
           files,
         });
         break;

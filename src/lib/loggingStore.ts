@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { Message, PartialMessage } from "discord.js";
+import { EmbedBuilder, Guild, Message, PartialMessage, TextChannel, User } from "discord.js";
 
 export interface CachedMessage {
   id: string;
@@ -137,3 +137,46 @@ export function cacheMessage(message: Message) {
 export function getCachedMessage(messageId: string): CachedMessage | undefined {
   return messageCache.get(messageId);
 }
+
+// ─────────────────────────────────────────────────────────────
+// CENTRAL COMMAND AUDIT LOGGER (Dyno-style)
+// ─────────────────────────────────────────────────────────────
+export async function logCommandExecution(options: {
+  guild: Guild;
+  user: User;
+  channelId: string;
+  commandName: string;
+  fullCommand: string;
+}) {
+  const { guild, user, channelId, commandName, fullCommand } = options;
+
+  const config = getLoggingConfig(guild.id);
+  const cmdChannelId = config.commandLogChannelId || "1508519539388977163";
+  if (!config.commandLog || !cmdChannelId) return;
+
+  try {
+    const cmdChannel =
+      (guild.channels.cache.get(cmdChannelId) as TextChannel | undefined) ||
+      ((await guild.channels.fetch(cmdChannelId).catch(() => null)) as TextChannel | null);
+
+    if (cmdChannel && cmdChannel.isTextBased()) {
+      const embed = new EmbedBuilder()
+        .setColor(0x0099ff) // Dyno Blue
+        .setAuthor({
+          name: user.tag,
+          iconURL: user.displayAvatarURL(),
+        })
+        .setDescription(
+          `Used \`${commandName}\` command in <#${channelId}>\n` +
+            `\`${fullCommand.slice(0, 500)}\``
+        )
+        .setFooter({ text: `${user.id}` })
+        .setTimestamp();
+
+      await cmdChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[log:commandExecution:error]", err);
+  }
+}
+

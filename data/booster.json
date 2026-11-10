@@ -1,0 +1,12 @@
+{
+  "1507706011622965258": {
+    "guildId": "1507706011622965258",
+    "enabled": true,
+    "roleId": "1509501020399599726",
+    "channelId": null,
+    "message": "🎉 **THANK YOU FOR BOOSTING!**\n\nHuge shoutout to {user} for boosting **{server}**!\nWe have now reached **{boostCount} Boosts** (Tier {level})! 🚀\n\nYour support means the world to our community. Enjoy your exclusive booster perks and role!",
+    "dmEnabled": true,
+    "dmMessage": "Thank you so much for boosting **{server}**, {username}! 💖\nYour boost helps upgrade our audio quality, server banner, and member perks. You've been granted your special booster role!",
+    "updatedAt": 1794156459941
+  }
+}

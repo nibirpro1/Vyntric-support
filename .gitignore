@@ -1,8 +1,8 @@
 node_modules/
 dist/
 .env
-data/*.json
 data/transcripts/
+data/*.tmp
 *.log
 *.exit
 preview.txt

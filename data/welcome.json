@@ -1,0 +1,18 @@
+{
+  "1507706011622965258": {
+    "guildId": "1507706011622965258",
+    "enabled": true,
+    "channelId": "1516108491226349609",
+    "message": "Welcome {user} to {server}! You are member #{memberCount}!",
+    "autoRoleIds": [
+      "1552923825753038939",
+      "1551797643628511293",
+      "1508723281006428170"
+    ],
+    "dmEnabled": true,
+    "dmMessage": "💖 Welcome to **Vyntric** We're so happy you joined us. Make yourself at home and enjoy your stay! ✨",
+    "leaveChannelId": "1569007615717941318",
+    "leaveMessage": "👋 **{username}** has left **{server}**. We now have **{memberCount}** members.",
+    "updatedAt": 1794151107731
+  }
+}

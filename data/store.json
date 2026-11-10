@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "settings": {
+    "1507706011622965258": {
+      "guildId": "1507706011622965258",
+      "staffRoleIds": [
+        "1554148031446646804",
+        "1568477993624412180",
+        "1568477992605323344"
+      ],
+      "logChannelId": "1568477995101061192",
+      "categoryId": "1568484400503722055",
+      "archiveCategoryId": "1568484400503722055",
+      "feedbackChannelId": "1551756552698986536",
+      "pingStaff": true,
+      "dmTranscript": false,
+      "autoArchive": true,
+      "ticketCounter": 3,
+      "panelChannelId": "1551716451071696906",
+      "panelMessageId": "1569044853529256020",
+      "updatedAt": 1794160707325,
+      "eventTime": "9:00 PM (daily)",
+      "highTestsChannelId": null,
+      "highResultsChannelId": null,
+      "punishmentsChannelId": null,
+      "staffLogChannelId": null,
+      "appealsChannelId": null,
+      "tierRoleIds": {}
+    }
+  },
+  "tickets": [
+    {
+      "guildId": "1507706011622965258",
+      "number": 3,
+      "type": "general_support",
+      "channelId": "1569048468045955192",
+      "channelName": "ticket-0003",
+      "ownerId": "1520324366854914054",
+      "answers": {
+        "subject": "kalo",
+        "details": "kalo"
+      },
+      "status": "closed",
+      "priority": "high",
+      "claimedBy": "1520324366854914054",
+      "createdAt": 1794160707866,
+      "closedAt": 1794160777627,
+      "closedBy": "1520324366854914054",
+      "closeReason": "deal signed",
+      "rating": null,
+      "headerMessageId": "1569048470113755158",
+      "transcriptFile": "D:\\vyntric-support\\data\\transcripts\\1507706011622965258\\0003-ticket-0003.html",
+      "id": "ticket_mw84ym8qifk95o"
+    }
+  ],
+  "strikes": [],
+  "punishments": [],
+  "tasks": [],
+  "proofs": [],
+  "trials": [],
+  "meetings": [],
+  "mvps": []
+}

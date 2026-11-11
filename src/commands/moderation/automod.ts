@@ -18,33 +18,42 @@ import {
   BUILTIN_ENGLISH_GALI,
   evaluateContentForAutoMod,
   formatPunishmentLabel,
+  getUserAutoModStrikes,
+  resetUserAutoModStrikes,
 } from "../../lib/automodEngine";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("automod")
-    .setDescription("Configure Vyntric AutoMod protection, gali filters & punishments")
+    .setDescription("Configure Advanced Vyntric AutoMod protection, filters & strike escalation")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
-      sub.setName("status").setDescription("View current AutoMod protection status & settings")
+      sub.setName("status").setDescription("View Advanced AutoMod dashboard & all active modules")
     )
     .addSubcommand((sub) =>
       sub
         .setName("toggle")
-        .setDescription("Enable or disable AutoMod or a specific filter")
+        .setDescription("Enable or disable AutoMod or any specific protection module")
         .addStringOption((opt) =>
           opt
             .setName("feature")
-            .setDescription("Filter feature")
+            .setDescription("Protection module")
             .setRequired(true)
             .addChoices(
               { name: "Master AutoMod (Everything On/Off)", value: "enabled" },
               { name: "Anti-Gali / Profanity (Bangla & English)", value: "antiBadWords" },
+              { name: "Anti-Phishing & Scam Links", value: "antiPhishing" },
               { name: "Anti-Invite (Block discord.gg links)", value: "antiInvite" },
               { name: "Anti-Link (Block external websites)", value: "antiLink" },
-              { name: "Anti-Spam (Block rapid message spam)", value: "antiSpam" },
-              { name: "Anti-Mention (Block >4 mass mentions)", value: "antiMention" }
+              { name: "Anti-Spam (Rapid message rate limit)", value: "antiSpam" },
+              { name: "Anti-Duplicate (Copy-paste flood)", value: "antiDuplicate" },
+              { name: "Anti-Mention (>4 mass mentions)", value: "antiMention" },
+              { name: "Anti-Caps (>75% ALL CAPS shouting)", value: "antiCaps" },
+              { name: "Anti-Emoji (>10 emoji flood)", value: "antiEmoji" },
+              { name: "Anti-Zalgo & Newline Flood", value: "antiZalgo" },
+              { name: "Auto-Escalation Strike Ladder", value: "escalatePunishment" },
+              { name: "DM Notice on Punishment", value: "dmOnPunish" }
             )
         )
         .addBooleanOption((opt) =>
@@ -54,7 +63,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("words")
-        .setDescription("Manage banned or whitelisted words")
+        .setDescription("Manage custom banned or allowlisted words")
         .addStringOption((opt) =>
           opt
             .setName("action")
@@ -78,6 +87,53 @@ const command: Command = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName("exempt")
+        .setDescription("Manage exempt channels, roles, and users (bypass AutoMod)")
+        .addStringOption((opt) =>
+          opt
+            .setName("action")
+            .setDescription("Add, Remove, or List exemptions")
+            .setRequired(true)
+            .addChoices(
+              { name: "Add Exemption", value: "add" },
+              { name: "Remove Exemption", value: "remove" },
+              { name: "List Exemptions", value: "list" }
+            )
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Channel to exempt/unexempt")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
+        .addRoleOption((opt) =>
+          opt.setName("role").setDescription("Role to exempt/unexempt").setRequired(false)
+        )
+        .addUserOption((opt) =>
+          opt.setName("user").setDescription("User to exempt/unexempt").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("strikes")
+        .setDescription("View or reset a member's active 1-hour AutoMod strikes")
+        .addUserOption((opt) =>
+          opt.setName("user").setDescription("Target member").setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("action")
+            .setDescription("Check or Reset")
+            .setRequired(true)
+            .addChoices(
+              { name: "Check Strikes", value: "check" },
+              { name: "Reset Strikes", value: "reset" }
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("logchannel")
         .setDescription("Set the private channel where AutoMod logs infractions")
         .addChannelOption((opt) =>
@@ -91,11 +147,11 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("punishment")
-        .setDescription("Set the punishment applied when a filter is triggered")
+        .setDescription("Set base punishment applied when a filter is triggered")
         .addStringOption((opt) =>
           opt
             .setName("action")
-            .setDescription("Punishment level")
+            .setDescription("Base punishment level")
             .setRequired(true)
             .addChoices(
               { name: "Warn (Delete message + notice)", value: "warn" },
@@ -114,16 +170,16 @@ const command: Command = {
         .addBooleanOption((opt) =>
           opt
             .setName("enabled")
-            .setDescription("True = Admins bypass | False = Filter everyone (recommended for testing)")
+            .setDescription("True = Admins bypass | False = Filter everyone (best for live testing)")
             .setRequired(true)
         )
     )
     .addSubcommand((sub) =>
       sub
         .setName("test")
-        .setDescription("Test a message to see if AutoMod blocks it (Bengali/English gali, links, etc.)")
+        .setDescription("Run Advanced AutoMod diagnostics on any text (bypass tricks, caps, emojis, etc.)")
         .addStringOption((opt) =>
-          opt.setName("text").setDescription("Text to test").setRequired(true)
+          opt.setName("text").setDescription("Text to analyze").setRequired(true)
         )
     ),
 
@@ -143,86 +199,49 @@ const command: Command = {
 
         const wordsPreview =
           config.badWords.length > 0
-            ? config.badWords.slice(0, 15).join(", ") +
-              (config.badWords.length > 15 ? ` (+${config.badWords.length - 15} more)` : "")
+            ? config.badWords.slice(0, 12).join(", ") +
+              (config.badWords.length > 12 ? ` (+${config.badWords.length - 12} more)` : "")
             : "None added";
 
-        const allowPreview =
-          config.allowWords.length > 0 ? config.allowWords.slice(0, 15).join(", ") : "None";
+        const badge = (on: boolean) => (on ? "✅ Active" : "❌ Off");
 
         const embed = new EmbedBuilder()
           .setColor(config.enabled ? BRAND.colors.primary : BRAND.colors.danger)
-          .setTitle("🛡️ Vyntric AutoMod Dashboard")
+          .setTitle("🛡️ Vyntric Advanced AutoMod Dashboard")
           .setDescription(
             `Master Switch: **${config.enabled ? "✅ ENABLED" : "❌ DISABLED"}**\n` +
-              `Built-in Gali Shield: **${builtinCount}+** Bangla, Banglish, Hindi & English terms (+ evasion detection)`
+              `Built-in Gali Shield: **${builtinCount}+** Bangla, Banglish, Hindi & English terms + Unicode/Font/Homoglyph Evasion Engine`
           )
           .addFields(
+            { name: "🤬 Anti-Gali", value: badge(config.antiBadWords), inline: true },
+            { name: "🎣 Anti-Phishing", value: badge(config.antiPhishing), inline: true },
+            { name: "🔗 Anti-Invite", value: badge(config.antiInvite), inline: true },
+            { name: "🌐 Anti-Link", value: config.antiLink ? "✅ On (GIFs safe)" : "❌ Off", inline: true },
+            { name: "⚡ Anti-Spam", value: badge(config.antiSpam), inline: true },
+            { name: "📑 Anti-Duplicate", value: badge(config.antiDuplicate), inline: true },
+            { name: "📢 Anti-Mention", value: badge(config.antiMention), inline: true },
+            { name: "🔠 Anti-Caps", value: badge(config.antiCaps), inline: true },
+            { name: "😀 Anti-Emoji", value: badge(config.antiEmoji), inline: true },
+            { name: "👾 Anti-Zalgo/Lines", value: badge(config.antiZalgo), inline: true },
+            { name: "📈 Auto-Escalation", value: badge(config.escalatePunishment), inline: true },
+            { name: "🛡️ Staff Immunity", value: config.adminImmunity ? "✅ Bypass On" : "⚠️ Off (All Filtered)", inline: true },
+            { name: "🔨 Base Punishment", value: `\`${formatPunishmentLabel(config.punishment)}\``, inline: true },
+            { name: "📋 Log Channel", value: config.logChannelId ? `<#${config.logChannelId}>` : "❌ Not Set", inline: true },
+            { name: "✉️ DM Offenders", value: badge(config.dmOnPunish), inline: true },
             {
-              name: "🤬 Anti-Gali / Bad Words",
-              value: config.antiBadWords ? "✅ Active" : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "🔗 Anti-Invite",
-              value: config.antiInvite ? "✅ Active" : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "🌐 Anti-Link",
-              value: config.antiLink ? "✅ Active (GIFs allowed)" : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "⚡ Anti-Spam",
-              value: config.antiSpam ? "✅ Active" : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "📢 Anti-Mass-Mention",
-              value: config.antiMention ? "✅ Active" : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "🛡️ Staff Immunity",
-              value: config.adminImmunity ? "✅ Admins Bypass" : "⚠️ Off (Filters All)",
-              inline: true,
-            },
-            {
-              name: "🔨 Punishment",
-              value: `\`${formatPunishmentLabel(config.punishment)}\``,
-              inline: true,
-            },
-            {
-              name: "📋 Log Channel",
-              value: config.logChannelId ? `<#${config.logChannelId}>` : "❌ Not Set",
-              inline: true,
-            },
-            {
-              name: `🚫 Custom Blacklist (${config.badWords.length})`,
+              name: `🚫 Custom Words (${config.badWords.length}) | ✅ Allowlist (${config.allowWords.length})`,
               value: `\`\`\`${wordsPreview}\`\`\``,
-              inline: false,
-            },
-            {
-              name: `✅ Allowlisted Words (${config.allowWords.length})`,
-              value: `\`\`\`${allowPreview}\`\`\``,
               inline: false,
             }
           )
-          .setFooter({ text: "Use /automod toggle, /automod punishment, or /automod test" });
+          .setFooter({ text: "Use /automod test, /automod toggle, or /automod exempt" });
 
         await interaction.reply({ embeds: [embed] });
         break;
       }
 
       case "toggle": {
-        const feature = interaction.options.getString("feature", true) as
-          | "enabled"
-          | "antiBadWords"
-          | "antiInvite"
-          | "antiLink"
-          | "antiSpam"
-          | "antiMention";
+        const feature = interaction.options.getString("feature", true) as keyof typeof config;
         const enabled = interaction.options.getBoolean("enabled", true);
 
         updateAutoModConfig(guildId, { [feature]: enabled });
@@ -232,10 +251,107 @@ const command: Command = {
             new EmbedBuilder()
               .setColor(enabled ? BRAND.colors.success : BRAND.colors.warning)
               .setDescription(
-                `✅ AutoMod **${feature}** is now **${enabled ? "ENABLED" : "DISABLED"}**.`
+                `✅ AutoMod **${String(feature)}** is now **${enabled ? "ENABLED" : "DISABLED"}**.`
               ),
           ],
         });
+        break;
+      }
+
+      case "exempt": {
+        const action = interaction.options.getString("action", true);
+        const chan = interaction.options.getChannel("channel");
+        const role = interaction.options.getRole("role");
+        const user = interaction.options.getUser("user");
+
+        if (action === "list") {
+          const embed = new EmbedBuilder()
+            .setColor(BRAND.colors.primary)
+            .setTitle("🛡️ AutoMod Exemptions")
+            .addFields(
+              {
+                name: "📺 Exempt Channels",
+                value:
+                  config.exemptChannels.length > 0
+                    ? config.exemptChannels.map((c) => `<#${c}>`).join(", ")
+                    : "None",
+              },
+              {
+                name: "🎭 Exempt Roles",
+                value:
+                  config.exemptRoles.length > 0
+                    ? config.exemptRoles.map((r) => `<@&${r}>`).join(", ")
+                    : "None",
+              },
+              {
+                name: "👤 Exempt Users",
+                value:
+                  config.exemptUsers.length > 0
+                    ? config.exemptUsers.map((u) => `<@${u}>`).join(", ")
+                    : "None",
+              }
+            );
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          return;
+        }
+
+        if (!chan && !role && !user) {
+          await interaction.reply({
+            content: "⚠️ Please provide at least one `channel`, `role`, or `user` option.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const nextChans = new Set(config.exemptChannels);
+        const nextRoles = new Set(config.exemptRoles);
+        const nextUsers = new Set(config.exemptUsers);
+        const updatedNotes: string[] = [];
+
+        if (chan) {
+          if (action === "add") nextChans.add(chan.id);
+          else nextChans.delete(chan.id);
+          updatedNotes.push(`Channel <#${chan.id}>`);
+        }
+        if (role) {
+          if (action === "add") nextRoles.add(role.id);
+          else nextRoles.delete(role.id);
+          updatedNotes.push(`Role <@&${role.id}>`);
+        }
+        if (user) {
+          if (action === "add") nextUsers.add(user.id);
+          else nextUsers.delete(user.id);
+          updatedNotes.push(`User <@${user.id}>`);
+        }
+
+        updateAutoModConfig(guildId, {
+          exemptChannels: Array.from(nextChans),
+          exemptRoles: Array.from(nextRoles),
+          exemptUsers: Array.from(nextUsers),
+        });
+
+        await interaction.reply({
+          content: `✅ ${action === "add" ? "Added to" : "Removed from"} AutoMod exemptions: ${updatedNotes.join(", ")}`,
+        });
+        break;
+      }
+
+      case "strikes": {
+        const user = interaction.options.getUser("user", true);
+        const action = interaction.options.getString("action", true);
+
+        if (action === "check") {
+          const strikes = getUserAutoModStrikes(guildId, user.id);
+          await interaction.reply({
+            content: `📊 **${user.tag}** currently has **${strikes}** active AutoMod strike(s) in the last 1 hour.`,
+            ephemeral: true,
+          });
+        } else {
+          resetUserAutoModStrikes(guildId, user.id);
+          await interaction.reply({
+            content: `✅ Reset all active 1-hour AutoMod strikes for **${user.tag}**.`,
+          });
+        }
         break;
       }
 
@@ -249,7 +365,6 @@ const command: Command = {
               ? config.badWords.map((w) => `\`${w}\``).join(", ")
               : "No custom blacklisted words configured.";
 
-          // Guard against Discord 4096 char embed description limit
           const safeList =
             rawList.length > 3500
               ? `${rawList.slice(0, 3500)}...\n\n*(Showing first portion of ${config.badWords.length} custom words)*`
@@ -310,7 +425,6 @@ const command: Command = {
           }
 
           if (newlyAdded.length > 0) {
-            // Also remove from allowWords if re-blacklisting
             const nextAllow = config.allowWords.filter((w) => !parsedWords.includes(w));
             updateAutoModConfig(guildId, {
               badWords: Array.from(currentWords),
@@ -329,7 +443,7 @@ const command: Command = {
           const next = config.badWords.filter((w) => !parsedWords.includes(w));
           updateAutoModConfig(guildId, { badWords: next });
           await interaction.reply({
-            content: `🗑️ Removed specified word(s) from your custom blacklist. *(If any word is in the built-in gali list, use \`Allow/Whitelist Word\` to unblock it.)*`,
+            content: `🗑️ Removed specified word(s) from your custom blacklist. *(To unblock a built-in word, use \`Allow/Whitelist Word\`.)*`,
           });
         } else if (action === "allow") {
           const nextAllow = Array.from(new Set([...config.allowWords, ...parsedWords]));
@@ -372,7 +486,7 @@ const command: Command = {
             new EmbedBuilder()
               .setColor(BRAND.colors.primary)
               .setDescription(
-                `✅ AutoMod punishment set to: **${formatPunishmentLabel(action)}**.`
+                `✅ Base AutoMod punishment set to: **${formatPunishmentLabel(action)}**.`
               ),
           ],
         });
@@ -389,8 +503,8 @@ const command: Command = {
               .setTitle(`🛡️ ${BRAND.name} AutoMod Staff Immunity`)
               .setDescription(
                 enabled
-                  ? "🛡️ **Admin & Staff Immunity is now ENABLED**.\nServer Admins and Staff will bypass AutoMod filters (normal members are still filtered)."
-                  : "🛡️ **Admin & Staff Immunity is now DISABLED**.\nAutoMod will filter EVERYONE including Admins & Staff (message will be deleted; Discord API still prevents timing out Admins)."
+                  ? "🛡️ **Admin & Staff Immunity is now ENABLED**.\nAdmins/Staff bypass AutoMod (regular members are still filtered)."
+                  : "🛡️ **Admin & Staff Immunity is now DISABLED**.\nAutoMod will filter EVERYONE including Admins & Staff (messages deleted; Discord API prevents timing out Admins)."
               ),
           ],
         });
@@ -403,14 +517,26 @@ const command: Command = {
 
         const embed = new EmbedBuilder()
           .setColor(evaluation.triggered ? BRAND.colors.danger : BRAND.colors.success)
-          .setTitle(`🛡️ ${BRAND.name} AutoMod Test Evaluation`)
+          .setTitle(`🛡️ ${BRAND.name} Advanced AutoMod Diagnostics`)
           .addFields(
-            { name: "Input Text", value: `\`\`\`\n${text.slice(0, 500)}\n\`\`\`` },
+            { name: "📥 Input Text", value: `\`\`\`\n${text.slice(0, 400)}\n\`\`\`` },
             {
-              name: "Result",
+              name: "🔍 Decoded / Normalized View",
+              value: `\`${evaluation.diagnostics.normalizedPreview || "[empty]"}\``,
+            },
+            {
+              name: "📊 Signal Metrics",
+              value: `Caps: **${evaluation.diagnostics.capsPercent}%** • Emojis: **${evaluation.diagnostics.emojiCount}** • Newlines: **${evaluation.diagnostics.newlineCount}** • Zalgo Marks: **${evaluation.diagnostics.zalgoBurst}**`,
+            },
+            {
+              name: "⚖️ Verdict",
               value: evaluation.triggered
-                ? `⚠️ **WOULD BE BLOCKED!**\n**Triggers:** ${evaluation.reasons.join(", ")}\n**Action:** Delete + \`${formatPunishmentLabel(config.punishment)}\``
-                : "✅ **CLEAN!** No AutoMod filters triggered.",
+                ? `⚠️ **BLOCKED (${evaluation.severity.toUpperCase()} severity)**\n**Triggers:** ${evaluation.reasons.join(", ")}\n**Strike 1 Action:** ${
+                    evaluation.severity === "soft"
+                      ? "Delete + Warn"
+                      : `Delete + ${formatPunishmentLabel(config.punishment)}`
+                  }`
+                : "✅ **CLEAN!** Passed all 10 protection modules.",
             }
           );
 

@@ -14,9 +14,16 @@ export interface AutoModConfig {
   enabled: boolean;
   antiInvite: boolean;
   antiLink: boolean;
+  antiPhishing: boolean;
   antiSpam: boolean;
+  antiDuplicate: boolean;
   antiMention: boolean;
+  antiCaps: boolean;
+  antiEmoji: boolean;
+  antiZalgo: boolean;
   antiBadWords: boolean;
+  escalatePunishment: boolean;
+  dmOnPunish: boolean;
   adminImmunity: boolean;
   badWords: string[];
   allowWords: string[];
@@ -86,9 +93,16 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
       enabled: true,
       antiInvite: true,
       antiLink: false,
+      antiPhishing: true,
       antiSpam: true,
+      antiDuplicate: true,
       antiMention: true,
+      antiCaps: true,
+      antiEmoji: true,
+      antiZalgo: true,
       antiBadWords: true,
+      escalatePunishment: true,
+      dmOnPunish: true,
       adminImmunity: true,
       badWords: [],
       allowWords: [],
@@ -102,7 +116,7 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
   }
 
   const cfg = store[guildId];
-  // Backfill newly added fields cleanly for existing stored configs
+  // Backfill advanced fields cleanly for existing stored configs
   if (cfg.badWords) cfg.badWords = flattenWords(cfg.badWords);
   else cfg.badWords = [];
 
@@ -110,7 +124,15 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
   else cfg.allowWords = [];
 
   if (cfg.antiBadWords === undefined) cfg.antiBadWords = true;
+  if (cfg.antiPhishing === undefined) cfg.antiPhishing = true;
+  if (cfg.antiDuplicate === undefined) cfg.antiDuplicate = true;
+  if (cfg.antiCaps === undefined) cfg.antiCaps = true;
+  if (cfg.antiEmoji === undefined) cfg.antiEmoji = true;
+  if (cfg.antiZalgo === undefined) cfg.antiZalgo = true;
+  if (cfg.escalatePunishment === undefined) cfg.escalatePunishment = true;
+  if (cfg.dmOnPunish === undefined) cfg.dmOnPunish = true;
   if (cfg.adminImmunity === undefined) cfg.adminImmunity = true;
+
   if (!Array.isArray(cfg.exemptUsers)) cfg.exemptUsers = [];
   if (!Array.isArray(cfg.exemptRoles)) cfg.exemptRoles = [];
   if (!Array.isArray(cfg.exemptChannels)) cfg.exemptChannels = [];

@@ -12,26 +12,35 @@ import {
   getAutoModConfig,
   updateAutoModConfig,
 } from "../../lib/automodStore";
+import {
+  BUILTIN_BANGLISH_HINDI_GALI,
+  BUILTIN_BENGALI_SCRIPT_GALI,
+  BUILTIN_ENGLISH_GALI,
+  evaluateContentForAutoMod,
+  formatPunishmentLabel,
+} from "../../lib/automodEngine";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("automod")
-    .setDescription("Configure Vyntric AutoMod protection and filters")
+    .setDescription("Configure Vyntric AutoMod protection, gali filters & punishments")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
-      sub.setName("status").setDescription("View current AutoMod protection status")
+      sub.setName("status").setDescription("View current AutoMod protection status & settings")
     )
     .addSubcommand((sub) =>
       sub
         .setName("toggle")
-        .setDescription("Enable or disable a specific AutoMod filter")
+        .setDescription("Enable or disable AutoMod or a specific filter")
         .addStringOption((opt) =>
           opt
             .setName("feature")
             .setDescription("Filter feature")
             .setRequired(true)
             .addChoices(
+              { name: "Master AutoMod (Everything On/Off)", value: "enabled" },
+              { name: "Anti-Gali / Profanity (Bangla & English)", value: "antiBadWords" },
               { name: "Anti-Invite (Block discord.gg links)", value: "antiInvite" },
               { name: "Anti-Link (Block external websites)", value: "antiLink" },
               { name: "Anti-Spam (Block rapid message spam)", value: "antiSpam" },
@@ -45,27 +54,32 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("words")
-        .setDescription("Manage banned words blacklist")
+        .setDescription("Manage banned or whitelisted words")
         .addStringOption((opt) =>
           opt
             .setName("action")
             .setDescription("Action to perform")
             .setRequired(true)
             .addChoices(
-              { name: "Add Word", value: "add" },
-              { name: "Remove Word", value: "remove" },
+              { name: "Add Word (Block)", value: "add" },
+              { name: "Remove Word (Unblock custom)", value: "remove" },
+              { name: "Allow/Whitelist Word (Bypass built-in)", value: "allow" },
+              { name: "Remove from Allowlist", value: "unallow" },
               { name: "List Words", value: "list" },
-              { name: "Clear Words", value: "clear" }
+              { name: "Clear Custom Blacklist", value: "clear" }
             )
         )
         .addStringOption((opt) =>
-          opt.setName("word").setDescription("Word to add or remove").setRequired(false)
+          opt
+            .setName("word")
+            .setDescription("Word(s) separated by commas (optional for list/clear)")
+            .setRequired(false)
         )
     )
     .addSubcommand((sub) =>
       sub
         .setName("logchannel")
-        .setDescription("Set the channel where AutoMod logs infractions")
+        .setDescription("Set the private channel where AutoMod logs infractions")
         .addChannelOption((opt) =>
           opt
             .setName("channel")
@@ -85,6 +99,8 @@ const command: Command = {
             .setRequired(true)
             .addChoices(
               { name: "Warn (Delete message + notice)", value: "warn" },
+              { name: "Timeout (30 Seconds)", value: "timeout_30s" },
+              { name: "Timeout (40 Seconds)", value: "timeout_40s" },
               { name: "Timeout (1 Minute)", value: "timeout_1m" },
               { name: "Timeout (5 Minutes)", value: "timeout_5m" },
               { name: "Timeout (10 Minutes)", value: "timeout_10m" }
@@ -105,7 +121,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("test")
-        .setDescription("Test a message to see which AutoMod filter triggers")
+        .setDescription("Test a message to see if AutoMod blocks it (Bengali/English gali, links, etc.)")
         .addStringOption((opt) =>
           opt.setName("text").setDescription("Text to test").setRequired(true)
         )
@@ -120,17 +136,33 @@ const command: Command = {
 
     switch (sub) {
       case "status": {
+        const builtinCount =
+          BUILTIN_BENGALI_SCRIPT_GALI.length +
+          BUILTIN_BANGLISH_HINDI_GALI.length +
+          BUILTIN_ENGLISH_GALI.length;
+
         const wordsPreview =
           config.badWords.length > 0
             ? config.badWords.slice(0, 15).join(", ") +
               (config.badWords.length > 15 ? ` (+${config.badWords.length - 15} more)` : "")
-            : "None configured";
+            : "None added";
+
+        const allowPreview =
+          config.allowWords.length > 0 ? config.allowWords.slice(0, 15).join(", ") : "None";
 
         const embed = new EmbedBuilder()
-          .setColor(BRAND.colors.primary)
+          .setColor(config.enabled ? BRAND.colors.primary : BRAND.colors.danger)
           .setTitle("🛡️ Vyntric AutoMod Dashboard")
-          .setDescription("Automated server protection rules and active filters:")
+          .setDescription(
+            `Master Switch: **${config.enabled ? "✅ ENABLED" : "❌ DISABLED"}**\n` +
+              `Built-in Gali Shield: **${builtinCount}+** Bangla, Banglish, Hindi & English terms (+ evasion detection)`
+          )
           .addFields(
+            {
+              name: "🤬 Anti-Gali / Bad Words",
+              value: config.antiBadWords ? "✅ Active" : "❌ Disabled",
+              inline: true,
+            },
             {
               name: "🔗 Anti-Invite",
               value: config.antiInvite ? "✅ Active" : "❌ Disabled",
@@ -138,7 +170,7 @@ const command: Command = {
             },
             {
               name: "🌐 Anti-Link",
-              value: config.antiLink ? "✅ Active" : "❌ Disabled",
+              value: config.antiLink ? "✅ Active (GIFs allowed)" : "❌ Disabled",
               inline: true,
             },
             {
@@ -152,8 +184,13 @@ const command: Command = {
               inline: true,
             },
             {
+              name: "🛡️ Staff Immunity",
+              value: config.adminImmunity ? "✅ Admins Bypass" : "⚠️ Off (Filters All)",
+              inline: true,
+            },
+            {
               name: "🔨 Punishment",
-              value: `\`${config.punishment}\``,
+              value: `\`${formatPunishmentLabel(config.punishment)}\``,
               inline: true,
             },
             {
@@ -162,18 +199,30 @@ const command: Command = {
               inline: true,
             },
             {
-              name: `🚫 Blacklisted Words (${config.badWords.length})`,
+              name: `🚫 Custom Blacklist (${config.badWords.length})`,
               value: `\`\`\`${wordsPreview}\`\`\``,
+              inline: false,
+            },
+            {
+              name: `✅ Allowlisted Words (${config.allowWords.length})`,
+              value: `\`\`\`${allowPreview}\`\`\``,
+              inline: false,
             }
           )
-          .setFooter({ text: "Use /automod toggle or /automod words to configure" });
+          .setFooter({ text: "Use /automod toggle, /automod punishment, or /automod test" });
 
         await interaction.reply({ embeds: [embed] });
         break;
       }
 
       case "toggle": {
-        const feature = interaction.options.getString("feature", true) as keyof typeof config;
+        const feature = interaction.options.getString("feature", true) as
+          | "enabled"
+          | "antiBadWords"
+          | "antiInvite"
+          | "antiLink"
+          | "antiSpam"
+          | "antiMention";
         const enabled = interaction.options.getBoolean("enabled", true);
 
         updateAutoModConfig(guildId, { [feature]: enabled });
@@ -182,7 +231,9 @@ const command: Command = {
           embeds: [
             new EmbedBuilder()
               .setColor(enabled ? BRAND.colors.success : BRAND.colors.warning)
-              .setDescription(`✅ **${feature}** is now **${enabled ? "ENABLED" : "DISABLED"}**.`),
+              .setDescription(
+                `✅ AutoMod **${feature}** is now **${enabled ? "ENABLED" : "DISABLED"}**.`
+              ),
           ],
         });
         break;
@@ -193,13 +244,32 @@ const command: Command = {
         const word = interaction.options.getString("word")?.trim().toLowerCase();
 
         if (action === "list") {
-          const list = config.badWords.join(", ") || "No blacklisted words.";
+          const rawList =
+            config.badWords.length > 0
+              ? config.badWords.map((w) => `\`${w}\``).join(", ")
+              : "No custom blacklisted words configured.";
+
+          // Guard against Discord 4096 char embed description limit
+          const safeList =
+            rawList.length > 3500
+              ? `${rawList.slice(0, 3500)}...\n\n*(Showing first portion of ${config.badWords.length} custom words)*`
+              : rawList;
+
+          const allowText =
+            config.allowWords.length > 0
+              ? config.allowWords.map((w) => `\`${w}\``).join(", ")
+              : "None";
+
           await interaction.reply({
             embeds: [
               new EmbedBuilder()
                 .setColor(BRAND.colors.primary)
-                .setTitle(`🚫 Blacklisted Words (${config.badWords.length})`)
-                .setDescription(list),
+                .setTitle(`🚫 AutoMod Words (${config.badWords.length} custom + Built-in Gali Shield)`)
+                .setDescription(safeList)
+                .addFields({
+                  name: `✅ Allowlisted Words (${config.allowWords.length})`,
+                  value: allowText.slice(0, 1000),
+                }),
             ],
             ephemeral: true,
           });
@@ -208,27 +278,31 @@ const command: Command = {
 
         if (action === "clear") {
           updateAutoModConfig(guildId, { badWords: [] });
-          await interaction.reply({ content: "🗑️ Cleared all blacklisted words." });
+          await interaction.reply({
+            content:
+              "🗑️ Cleared all custom blacklisted words. *(Note: The built-in Bengali & English Gali Shield remains active unless toggled off.)*",
+          });
           return;
         }
 
         if (!word) {
           await interaction.reply({
-            content: "⚠️ You must specify a word to add or remove.",
+            content: "⚠️ You must specify a word.",
             ephemeral: true,
           });
           return;
         }
 
+        const parsedWords = word
+          .split(/[\r\n,]+/)
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+
         if (action === "add") {
-          const wordsToAdd = word
-            .split(/[\r\n,]+/)
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean);
           const currentWords = new Set(config.badWords);
           const newlyAdded: string[] = [];
 
-          for (const w of wordsToAdd) {
+          for (const w of parsedWords) {
             if (!currentWords.has(w)) {
               currentWords.add(w);
               newlyAdded.push(w);
@@ -236,7 +310,12 @@ const command: Command = {
           }
 
           if (newlyAdded.length > 0) {
-            updateAutoModConfig(guildId, { badWords: Array.from(currentWords) });
+            // Also remove from allowWords if re-blacklisting
+            const nextAllow = config.allowWords.filter((w) => !parsedWords.includes(w));
+            updateAutoModConfig(guildId, {
+              badWords: Array.from(currentWords),
+              allowWords: nextAllow,
+            });
             await interaction.reply({
               content: `✅ Added **${newlyAdded.length}** word(s) to AutoMod blacklist: \`${newlyAdded.join(", ")}\``,
             });
@@ -247,14 +326,26 @@ const command: Command = {
             });
           }
         } else if (action === "remove") {
-          const wordsToRemove = word
-            .split(/[\r\n,]+/)
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean);
-          const next = config.badWords.filter((w) => !wordsToRemove.includes(w));
+          const next = config.badWords.filter((w) => !parsedWords.includes(w));
           updateAutoModConfig(guildId, { badWords: next });
           await interaction.reply({
-            content: `🗑️ Removed specified word(s) from AutoMod blacklist.`,
+            content: `🗑️ Removed specified word(s) from your custom blacklist. *(If any word is in the built-in gali list, use \`Allow/Whitelist Word\` to unblock it.)*`,
+          });
+        } else if (action === "allow") {
+          const nextAllow = Array.from(new Set([...config.allowWords, ...parsedWords]));
+          const nextBad = config.badWords.filter((w) => !parsedWords.includes(w));
+          updateAutoModConfig(guildId, {
+            allowWords: nextAllow,
+            badWords: nextBad,
+          });
+          await interaction.reply({
+            content: `✅ Added \`${parsedWords.join(", ")}\` to the **Allowlist** — AutoMod will no longer block them.`,
+          });
+        } else if (action === "unallow") {
+          const nextAllow = config.allowWords.filter((w) => !parsedWords.includes(w));
+          updateAutoModConfig(guildId, { allowWords: nextAllow });
+          await interaction.reply({
+            content: `🗑️ Removed \`${parsedWords.join(", ")}\` from the Allowlist.`,
           });
         }
         break;
@@ -267,7 +358,7 @@ const command: Command = {
           embeds: [
             new EmbedBuilder()
               .setColor(BRAND.colors.success)
-              .setDescription(`✅ AutoMod incident logs will be sent to <#${channel.id}>.`),
+              .setDescription(`✅ AutoMod infraction logs will be sent to <#${channel.id}>.`),
           ],
         });
         break;
@@ -280,7 +371,9 @@ const command: Command = {
           embeds: [
             new EmbedBuilder()
               .setColor(BRAND.colors.primary)
-              .setDescription(`✅ Default AutoMod punishment set to: **${action}**.`),
+              .setDescription(
+                `✅ AutoMod punishment set to: **${formatPunishmentLabel(action)}**.`
+              ),
           ],
         });
         break;
@@ -296,8 +389,8 @@ const command: Command = {
               .setTitle(`🛡️ ${BRAND.name} AutoMod Staff Immunity`)
               .setDescription(
                 enabled
-                  ? "🛡️ **Admin & Staff Immunity is now ENABLED**.\nServer Admins and Staff will bypass AutoMod filters."
-                  : "🛡️ **Admin & Staff Immunity is now DISABLED**.\nAutoMod will filter EVERYONE (including server admins/owner). Recommended for testing!"
+                  ? "🛡️ **Admin & Staff Immunity is now ENABLED**.\nServer Admins and Staff will bypass AutoMod filters (normal members are still filtered)."
+                  : "🛡️ **Admin & Staff Immunity is now DISABLED**.\nAutoMod will filter EVERYONE including Admins & Staff (message will be deleted; Discord API still prevents timing out Admins)."
               ),
           ],
         });
@@ -306,51 +399,18 @@ const command: Command = {
 
       case "test": {
         const text = interaction.options.getString("text", true);
-        const lower = text.toLowerCase();
-        const triggers: string[] = [];
-
-        // Check invite
-        if (
-          /(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\/invite|dsc\.gg)\/[a-z0-9_-]+/i.test(
-            text
-          )
-        ) {
-          triggers.push("🔗 Discord Invite Link");
-        }
-        // Check link
-        if (/https?:\/\/[^\s]+/i.test(text)) {
-          triggers.push("🌐 External Link");
-        }
-        // Check bad words
-        const matchedWords: string[] = [];
-        for (const rawWord of config.badWords) {
-          const w = rawWord.trim().toLowerCase();
-          if (!w) continue;
-          let matches = false;
-          if (w.includes(" ")) {
-            matches = lower.includes(w);
-          } else if (/^[a-zA-Z0-9]+$/.test(w)) {
-            matches = new RegExp(`(?<=^|[^a-zA-Z0-9])${w}(?=$|[^a-zA-Z0-9])`, "i").test(lower);
-          } else {
-            matches = lower.includes(w);
-          }
-          if (matches) matchedWords.push(w);
-        }
-        if (matchedWords.length > 0) {
-          triggers.push(`🚫 Banned Words: \`${matchedWords.join(", ")}\``);
-        }
+        const evaluation = evaluateContentForAutoMod(text, config);
 
         const embed = new EmbedBuilder()
-          .setColor(triggers.length > 0 ? BRAND.colors.danger : BRAND.colors.success)
+          .setColor(evaluation.triggered ? BRAND.colors.danger : BRAND.colors.success)
           .setTitle(`🛡️ ${BRAND.name} AutoMod Test Evaluation`)
           .addFields(
             { name: "Input Text", value: `\`\`\`\n${text.slice(0, 500)}\n\`\`\`` },
             {
               name: "Result",
-              value:
-                triggers.length > 0
-                  ? `⚠️ **WOULD BE BLOCKED!**\nTriggers detected:\n- ${triggers.join("\n- ")}`
-                  : "✅ **CLEAN!** No AutoMod filters triggered.",
+              value: evaluation.triggered
+                ? `⚠️ **WOULD BE BLOCKED!**\n**Triggers:** ${evaluation.reasons.join(", ")}\n**Action:** Delete + \`${formatPunishmentLabel(config.punishment)}\``
+                : "✅ **CLEAN!** No AutoMod filters triggered.",
             }
           );
 

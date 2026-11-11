@@ -1,5 +1,6 @@
 import { Events, Message, EmbedBuilder, TextChannel, PartialMessage } from "discord.js";
 import { cacheMessage, getCachedMessage, getLoggingConfig } from "../lib/loggingStore";
+import { executeAutoModCheck } from "../lib/automodEngine";
 
 export default {
   name: Events.MessageUpdate,
@@ -7,28 +8,41 @@ export default {
   async execute(oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage) {
     if (!newMessage.guild || newMessage.author?.bot) return;
 
-    const cached = getCachedMessage(newMessage.id);
-    const oldContent = oldMessage.content || cached?.content || null;
-    const newContent = newMessage.content || null;
+    // Fetch content if partial
+    let resolvedNew = newMessage;
+    if (resolvedNew.partial) {
+      resolvedNew = await resolvedNew.fetch().catch(() => resolvedNew);
+    }
 
-    // Skip if content didn't change (e.g. embed preview loaded or reaction added)
+    const cached = getCachedMessage(resolvedNew.id);
+    const oldContent = oldMessage.content || cached?.content || null;
+    const newContent = resolvedNew.content || null;
+
+    // Run AutoMod check on edited content first to prevent edit-based filter bypass
+    if (newContent) {
+      await executeAutoModCheck(resolvedNew, true).catch((err) => {
+        console.error("[automod:messageUpdate:error]", err);
+      });
+    }
+
+    // Skip audit log if content didn't change (e.g. embed preview loaded)
     if (!oldContent || !newContent || oldContent === newContent) return;
 
-    const config = getLoggingConfig(newMessage.guild.id);
+    const config = getLoggingConfig(resolvedNew.guild!.id);
     const targetChannelId = config.messageLogChannelId || config.logChannelId;
     if (!targetChannelId || !config.messageUpdate) return;
 
     try {
       const channel =
-        (newMessage.guild.channels.cache.get(targetChannelId) as TextChannel | undefined) ||
-        ((await newMessage.guild.channels.fetch(targetChannelId).catch(() => null)) as TextChannel | null);
+        (resolvedNew.guild!.channels.cache.get(targetChannelId) as TextChannel | undefined) ||
+        ((await resolvedNew.guild!.channels.fetch(targetChannelId).catch(() => null)) as TextChannel | null);
 
       if (!channel || !channel.isTextBased()) return;
 
-      const authorTag = newMessage.author?.tag || cached?.authorTag || "Unknown User";
-      const authorId = newMessage.author?.id || cached?.authorId || "Unknown ID";
+      const authorTag = resolvedNew.author?.tag || cached?.authorTag || "Unknown User";
+      const authorId = resolvedNew.author?.id || cached?.authorId || "Unknown ID";
       const authorAvatar =
-        newMessage.author?.displayAvatarURL() ||
+        resolvedNew.author?.displayAvatarURL() ||
         cached?.authorAvatar ||
         undefined;
 
@@ -39,7 +53,7 @@ export default {
           iconURL: authorAvatar,
         })
         .setDescription(
-          `**Message edited in <#${newMessage.channelId}>** [Jump to Message](${newMessage.url})\n\n` +
+          `**Message edited in <#${resolvedNew.channelId}>** [Jump to Message](${resolvedNew.url})\n\n` +
             `**Before:**\n${oldContent.slice(0, 1000)}\n\n` +
             `**+After:**\n${newContent.slice(0, 1000)}`
         )
@@ -49,8 +63,8 @@ export default {
       await channel.send({ embeds: [embed] });
 
       // Update cached message with new content
-      if ("attachments" in newMessage) {
-        cacheMessage(newMessage as Message);
+      if ("attachments" in resolvedNew) {
+        cacheMessage(resolvedNew as Message);
       }
     } catch (err) {
       console.error("[log:messageUpdate:error]", err);

@@ -1,7 +1,13 @@
 import fs from "fs";
 import path from "path";
 
-export type AutoModPunishment = "warn" | "timeout_1m" | "timeout_5m" | "timeout_10m";
+export type AutoModPunishment =
+  | "warn"
+  | "timeout_30s"
+  | "timeout_40s"
+  | "timeout_1m"
+  | "timeout_5m"
+  | "timeout_10m";
 
 export interface AutoModConfig {
   guildId: string;
@@ -10,8 +16,13 @@ export interface AutoModConfig {
   antiLink: boolean;
   antiSpam: boolean;
   antiMention: boolean;
+  antiBadWords: boolean;
   adminImmunity: boolean;
   badWords: string[];
+  allowWords: string[];
+  exemptUsers: string[];
+  exemptRoles: string[];
+  exemptChannels: string[];
   punishment: AutoModPunishment;
   logChannelId: string | null;
   updatedAt: number;
@@ -20,7 +31,10 @@ export interface AutoModConfig {
 export function flattenWords(words: string[]): string[] {
   const result = new Set<string>();
   for (const item of words) {
-    const parts = item.split(/[\r\n,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const parts = item
+      .split(/[\r\n,]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
     for (const p of parts) {
       result.add(p);
     }
@@ -74,21 +88,34 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
       antiLink: false,
       antiSpam: true,
       antiMention: true,
-      adminImmunity: false,
+      antiBadWords: true,
+      adminImmunity: true,
       badWords: [],
-      punishment: "warn",
+      allowWords: [],
+      exemptUsers: [],
+      exemptRoles: [],
+      exemptChannels: [],
+      punishment: "timeout_40s",
       logChannelId: null,
       updatedAt: Date.now(),
     };
   }
-  // Ensure badWords is flattened
-  if (store[guildId].badWords) {
-    store[guildId].badWords = flattenWords(store[guildId].badWords);
-  }
-  if (store[guildId].adminImmunity === undefined) {
-    store[guildId].adminImmunity = false;
-  }
-  return store[guildId];
+
+  const cfg = store[guildId];
+  // Backfill newly added fields cleanly for existing stored configs
+  if (cfg.badWords) cfg.badWords = flattenWords(cfg.badWords);
+  else cfg.badWords = [];
+
+  if (cfg.allowWords) cfg.allowWords = flattenWords(cfg.allowWords);
+  else cfg.allowWords = [];
+
+  if (cfg.antiBadWords === undefined) cfg.antiBadWords = true;
+  if (cfg.adminImmunity === undefined) cfg.adminImmunity = true;
+  if (!Array.isArray(cfg.exemptUsers)) cfg.exemptUsers = [];
+  if (!Array.isArray(cfg.exemptRoles)) cfg.exemptRoles = [];
+  if (!Array.isArray(cfg.exemptChannels)) cfg.exemptChannels = [];
+
+  return cfg;
 }
 
 export function updateAutoModConfig(
@@ -97,10 +124,13 @@ export function updateAutoModConfig(
 ): AutoModConfig {
   const current = getAutoModConfig(guildId);
   const badWords = updates.badWords ? flattenWords(updates.badWords) : current.badWords;
+  const allowWords = updates.allowWords ? flattenWords(updates.allowWords) : current.allowWords;
+
   const updated: AutoModConfig = {
     ...current,
     ...updates,
     badWords,
+    allowWords,
     updatedAt: Date.now(),
   };
   store[guildId] = updated;

@@ -6,6 +6,7 @@
     "antiLink": true,
     "antiSpam": true,
     "antiMention": true,
+    "antiBadWords": true,
     "badWords": [
       "choda",
       "chudi",
@@ -28,8 +29,6 @@
       "bocachoda",
       "madarchod",
       "madarchoda",
-      "mc",
-      "bc",
       "gandu",
       "gaandu",
       "gaand",
@@ -85,7 +84,6 @@
       "beshyar",
       "beshyamagi",
       "randi",
-      "rand",
       "randir",
       "randirpola",
       "bokachuda",
@@ -115,7 +113,6 @@
       "voda",
       "bhodai",
       "putki",
-      "puti",
       "putkimarani",
       "podmarani",
       "চোদা",
@@ -165,9 +162,16 @@
       "পোদ",
       "পোদমারানি"
     ],
-    "punishment": "timeout_5m",
-    "logChannelId": "1508548021808398346",
-    "updatedAt": 1794140639704,
+    "allowWords": [],
+    "exemptUsers": [],
+    "exemptRoles": [],
+    "exemptChannels": [
+      "1508519539388977163",
+      "1548374744695447623"
+    ],
+    "punishment": "timeout_40s",
+    "logChannelId": "1508536272048885853",
+    "updatedAt": 1794377300000,
     "adminImmunity": true
   }
 }

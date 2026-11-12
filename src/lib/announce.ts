@@ -54,8 +54,14 @@ export function buildAnnouncementDmEmbed(
   const channelDisplay = channelName ? channelName.replace(/^#/, "") : "announcements";
   const pillText = `[🔴 **${guild.name}** › **# ${channelDisplay}**](${input.jumpUrl || "https://discord.com"})`;
 
+  let displayMessage = input.message;
+  // If the user's message is just a raw Discord message jump link, don't show an ugly naked link
+  if (/^https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/\d+\/\d+\/\d+$/i.test(displayMessage.trim())) {
+    displayMessage = input.alert ? input.alert : "A new announcement has been published in the server!";
+  }
+
   const descriptionParts = [
-    input.message ? input.message : (input.alert ? input.alert : ""),
+    displayMessage ? displayMessage : (input.alert ? input.alert : ""),
     "",
     pillText,
   ].filter((p) => p !== null && p !== undefined && p !== "");
@@ -125,9 +131,12 @@ export async function broadcastAnnouncementDm(options: {
     members = [...guild.members.cache.values()];
   }
 
-  // Target every human member in the server
+  // Target every human member in the server with deduplication
+  const seenMemberIds = new Set<string>();
   const targets = members.filter((member) => {
     if (member.user.bot) return false;
+    if (seenMemberIds.has(member.id)) return false;
+    seenMemberIds.add(member.id);
     if (roleFilterId && !member.roles.cache.has(roleFilterId)) return false;
     return true;
   });

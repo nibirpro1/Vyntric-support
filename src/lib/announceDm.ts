@@ -10,6 +10,26 @@ import { broadcastAnnouncementDm } from "./announce";
 /** Edits the progress reply at most this often so we never spam the API. */
 const PROGRESS_INTERVAL_MS = 6000;
 
+// Active broadcast safety tracker (prevents overlapping server-wide blasts)
+const activeBroadcastGuilds = new Set<string>();
+const lastBroadcastTimestamp = new Map<string, number>();
+
+/** Returns true if a DM broadcast is currently in-flight for this guild. */
+export function isBroadcastActive(guildId: string): boolean {
+  return activeBroadcastGuilds.has(guildId);
+}
+
+/** Returns remaining cooldown in seconds (default 30s), or 0 if free. */
+export function getBroadcastCooldownRemaining(guildId: string, cooldownSec = 30): number {
+  const last = lastBroadcastTimestamp.get(guildId);
+  if (!last) return 0;
+  const elapsed = Math.floor((Date.now() - last) / 1000);
+  if (elapsed < cooldownSec) {
+    return cooldownSec - elapsed;
+  }
+  return 0;
+}
+
 /**
  * Sends one embed to every target member's DM while streaming progress back into
  * the (ephemeral) interaction reply, then reports the final tally.
@@ -23,6 +43,8 @@ export async function runDmBroadcast(
 ) {
   const guild = interaction.guild;
   if (!guild) return;
+
+  activeBroadcastGuilds.add(guild.id);
 
   let dmComponents: ActionRowBuilder<ButtonBuilder>[] | undefined;
   let roleFilterId: string | null = null;
@@ -42,53 +64,58 @@ export async function runDmBroadcast(
   let done = 0;
   let total = 0;
 
-  const result = await broadcastAnnouncementDm({
-    guild,
-    embed: dmEmbed,
-    components: dmComponents,
-    roleFilterId,
-    onProgress: async (progressDone, progressTotal) => {
-      done = progressDone;
-      total = progressTotal;
-      if (Date.now() - lastEdit < PROGRESS_INTERVAL_MS) return;
-      lastEdit = Date.now();
+  try {
+    const result = await broadcastAnnouncementDm({
+      guild,
+      embed: dmEmbed,
+      components: dmComponents,
+      roleFilterId,
+      onProgress: async (progressDone, progressTotal) => {
+        done = progressDone;
+        total = progressTotal;
+        if (Date.now() - lastEdit < PROGRESS_INTERVAL_MS) return;
+        lastEdit = Date.now();
 
-      await interaction
-        .editReply({
-          embeds: [
-            vyntricEmbed("accent")
-              .setTitle("📨 DM alert in progress…")
-              .setDescription(
-                [
-                  startMessage,
-                  "",
-                  `**Delivered:** ${done}/${total}`,
-                  "-# The announcement is already live in the channel.",
-                ].join("\n")
-              ),
-          ],
-        })
-        .catch(() => {});
-    },
-  });
+        await interaction
+          .editReply({
+            embeds: [
+              vyntricEmbed("accent")
+                .setTitle("📨 DM alert in progress…")
+                .setDescription(
+                  [
+                    startMessage,
+                    "",
+                    `**Delivered:** ${done}/${total}`,
+                    "-# The announcement is already live in the channel.",
+                  ].join("\n")
+                ),
+            ],
+          })
+          .catch(() => {});
+      },
+    });
 
-  await interaction
-    .editReply({
-      embeds: [
-        vyntricEmbed(result.failed > 0 ? "warning" : "success")
-          .setTitle("✅ Announcement complete")
-          .setDescription(
-            [
-              startMessage,
-              "",
-              `**DMs delivered:** ${result.sent}`,
-              `**DM failed (closed DMs):** ${result.failed}`,
-              `**Skipped:** ${result.skipped} (bots / other roles)`,
-              "",
-              "-# Members with closed DMs still see the announcement in the channel.",
-            ].join("\n")
-          ),
-      ],
-    })
-    .catch(() => {});
+    await interaction
+      .editReply({
+        embeds: [
+          vyntricEmbed(result.failed > 0 ? "warning" : "success")
+            .setTitle("✅ Announcement complete")
+            .setDescription(
+              [
+                startMessage,
+                "",
+                `**DMs delivered:** ${result.sent}`,
+                `**DM failed (closed DMs):** ${result.failed}`,
+                `**Skipped:** ${result.skipped} (bots / other roles)`,
+                "",
+                "-# Members with closed DMs still see the announcement in the channel.",
+              ].join("\n")
+            ),
+        ],
+      })
+      .catch(() => {});
+  } finally {
+    activeBroadcastGuilds.delete(guild.id);
+    lastBroadcastTimestamp.set(guild.id, Date.now());
+  }
 }

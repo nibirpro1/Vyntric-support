@@ -1,5 +1,9 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
+  ComponentType,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -16,39 +20,42 @@ import {
   buildPingContent,
   canPost,
 } from "../../lib/announce";
-import { runDmBroadcast } from "../../lib/announceDm";
-import { getSettings } from "../../lib/store";
+import {
+  getBroadcastCooldownRemaining,
+  isBroadcastActive,
+  runDmBroadcast,
+} from "../../lib/announceDm";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("announcement")
-    .setDescription("Post a Vyntric announcement and alert members in DM")
+    .setDescription("Post a Vyntric announcement with preview & optional member DM broadcast")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((option) =>
       option
         .setName("title")
-        .setDescription("Announcement headline (e.g. Vyntric)")
+        .setDescription("Announcement headline (e.g. Vyntric UHC Tournament)")
         .setRequired(true)
         .setMaxLength(120)
     )
     .addStringOption((option) =>
       option
         .setName("message")
-        .setDescription("Paste the full announcement text here")
+        .setDescription("Paste the full announcement text here (use \\n for line breaks)")
         .setRequired(true)
         .setMaxLength(1800)
     )
     .addStringOption((option) =>
       option
         .setName("alert")
-        .setDescription("Short DM alert line (e.g. UHC event today at 8:00 PM)")
+        .setDescription("Short DM alert line (e.g. Join the UHC tournament today!)")
         .setRequired(false)
         .setMaxLength(200)
     )
     .addChannelOption((option) =>
       option
         .setName("channel")
-        .setDescription("Channel to announce in (defaults to the current channel)")
+        .setDescription("Channel to announce in (defaults to current channel)")
         .addChannelTypes(ChannelType.GuildText)
     )
     .addRoleOption((option) =>
@@ -65,12 +72,21 @@ const command: Command = {
         .addChoices({ name: "@everyone", value: "everyone" }, { name: "@here", value: "here" })
     )
     .addBooleanOption((option) =>
-      option.setName("dm").setDescription("Send the DM alert (default: yes)").setRequired(false)
+      option
+        .setName("dm")
+        .setDescription("Send the DM alert (default: yes)")
+        .setRequired(false)
     )
     .addRoleOption((option) =>
       option
         .setName("dm-role")
-        .setDescription("Only DM members holding this role (e.g. Vyntric UHC)")
+        .setDescription("Only DM members holding this role (e.g. Giveaway Role)")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("preview")
+        .setDescription("Preview mode only: see how it looks without posting (default: false)")
         .setRequired(false)
     ),
 
@@ -83,20 +99,44 @@ const command: Command = {
       return;
     }
 
+    const guildId = interaction.guild.id;
+
+    // 1. Guard against overlapping server-wide broadcasts
+    if (isBroadcastActive(guildId)) {
+      await interaction.reply({
+        content:
+          "⚠️ **A server-wide DM broadcast is currently in progress!**\n" +
+          "Please wait until it finishes before sending another announcement to prevent duplicate alerts.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // 2. Cooldown guard (prevents rapid duplicate triggers)
+    const cooldown = getBroadcastCooldownRemaining(guildId, 25);
+    if (cooldown > 0) {
+      await interaction.reply({
+        content:
+          `⏳ **Announcement cooldown active.**\n` +
+          `An announcement was recently sent. Please wait **${cooldown}s** before broadcasting another one.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe());
-    const target = (interaction.options.getChannel("channel") ?? interaction.channel) as TextChannel | null;
+    const channelOption = interaction.options.getChannel("channel");
+    const target = (channelOption ?? interaction.channel) as TextChannel | null;
 
     if (!target || !target.isTextBased() || !canPost(target, me)) {
       await interaction.reply({
-        content: "I cannot post an announcement there — check my channel permissions.",
+        content: "I cannot post an announcement there — check my channel permissions (ViewChannel, SendMessages, EmbedLinks).",
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const title = interaction.options.getString("title", true).trim();
-    // `\n` typed in the command box becomes a real line break, so multi-line
-    // announcements survive Discord's single-line option input.
     const message = interaction.options
       .getString("message", true)
       .trim()
@@ -106,6 +146,7 @@ const command: Command = {
     const ping = interaction.options.getString("ping");
     const dmRole = interaction.options.getRole("dm-role");
     const sendDms = interaction.options.getBoolean("dm") ?? true;
+    const previewMode = interaction.options.getBoolean("preview") ?? false;
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -118,9 +159,116 @@ const command: Command = {
       jumpUrl: null,
     };
 
+    const channelEmbed = buildAnnouncementEmbed(input);
+    const dmEmbedPreview = buildAnnouncementDmEmbed(input, interaction.guild, target.name);
+
+    const isDefaultChannel = !channelOption;
+    const channelWarning = isDefaultChannel
+      ? ` ⚠️ *(Notice: No channel was selected, defaulting to <#${target.id}>)*`
+      : "";
+
+    const summaryText = [
+      `📢 **Target Channel:** <#${target.id}>${channelWarning}`,
+      ping === "everyone" ? "🔔 **Ping:** `@everyone`" : ping === "here" ? "🔔 **Ping:** `@here`" : pingRole ? `🔔 **Ping:** <@&${pingRole.id}>` : "🔔 **Ping:** None",
+      sendDms
+        ? dmRole
+          ? `📨 **DM Broadcast:** Members with role <@&${dmRole.id}>`
+          : "📨 **DM Broadcast:** **Every server member**"
+        : "📨 **DM Broadcast:** **Disabled** (Channel only)",
+      alert ? `💬 **DM Alert text:** ${alert}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    // ─────────────────────────────────────────────────────────────
+    // PREVIEW ONLY MODE
+    // ─────────────────────────────────────────────────────────────
+    if (previewMode) {
+      await interaction.editReply({
+        content: `🔍 **Announcement Preview Mode** (Nothing has been posted or sent)\n\n${summaryText}\n\n_Embeds shown below:_`,
+        embeds: [channelEmbed, dmEmbedPreview],
+        components: [],
+      });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // INTERACTIVE CONFIRMATION (Prevents accidental duplicate sends)
+    // ─────────────────────────────────────────────────────────────
+    const confirmId = `annc_post_${interaction.id}`;
+    const cancelId = `annc_cancel_${interaction.id}`;
+
+    const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(confirmId)
+        .setLabel("Post Announcement")
+        .setEmoji("📢")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(cancelId)
+        .setLabel("Cancel")
+        .setEmoji("✖️")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    const promptMessage = await interaction.editReply({
+      content:
+        `📢 **Announcement Confirmation & Preview**\n` +
+        `Please review the settings and preview below. Click **Post Announcement** to publish, or **Cancel** to abort.\n\n` +
+        `${summaryText}\n\n` +
+        `_Channel Embed Preview (first) & Member DM Preview (second):_`,
+      embeds: [channelEmbed, dmEmbedPreview],
+      components: [actionRow],
+    });
+
+    let confirmation;
+    try {
+      confirmation = await promptMessage.awaitMessageComponent({
+        componentType: ComponentType.Button,
+        filter: (btn) => btn.user.id === interaction.user.id && (btn.customId === confirmId || btn.customId === cancelId),
+        time: 60_000,
+      });
+    } catch {
+      // Timed out after 60s
+      await interaction.editReply({
+        content: "⌛ **Announcement timed out.** No action was taken and nothing was posted.",
+        embeds: [],
+        components: [],
+      }).catch(() => {});
+      return;
+    }
+
+    if (confirmation.customId === cancelId) {
+      await confirmation.update({
+        content: "❌ **Announcement cancelled.** Nothing was posted to the server or DMs.",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
+    // Re-verify broadcast lock at moment of button click
+    if (isBroadcastActive(guildId)) {
+      await confirmation.update({
+        content: "⚠️ **Another broadcast started while reviewing!** Announcement aborted to avoid duplication.",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
+    await confirmation.update({
+      content: "📨 **Publishing announcement to channel…**",
+      embeds: [],
+      components: [],
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // POST TO CHANNEL
+    // ─────────────────────────────────────────────────────────────
     const announcement = await target.send({
       content: buildPingContent({ ping, pingRoleId: pingRole?.id ?? null }) || undefined,
-      embeds: [buildAnnouncementEmbed(input)],
+      embeds: [channelEmbed],
       allowedMentions: buildAllowedMentions({ ping, pingRoleId: pingRole?.id ?? null }),
     });
 
@@ -138,6 +286,7 @@ const command: Command = {
 
     if (!sendDms) {
       await interaction.editReply({
+        content: null,
         embeds: [
           vyntricEmbed("success")
             .setTitle("✅ Announcement posted")
@@ -150,6 +299,7 @@ const command: Command = {
     }
 
     await interaction.editReply({
+      content: null,
       embeds: [
         vyntricEmbed("accent")
           .setTitle("📨 Sending DM alerts…")

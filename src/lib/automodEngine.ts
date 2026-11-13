@@ -623,6 +623,40 @@ export function normalizeAutoModText(raw: string): string {
   return text;
 }
 
+/**
+ * Evaluates whether a voice channel is strictly private:
+ * - @everyone does not have ViewChannel OR does not have Connect permissions
+ * - Or channel name explicitly contains staff/private/locked keywords
+ */
+export function isPrivateVoiceChannel(channel: any): boolean {
+  if (!channel || typeof channel.isVoiceBased !== "function" || !channel.isVoiceBased()) {
+    return false;
+  }
+  const everyoneRole = channel.guild?.roles?.everyone;
+  if (!everyoneRole) return false;
+  const perms = channel.permissionsFor(everyoneRole);
+  if (!perms) return false;
+
+  // If @everyone cannot view or connect, it is a private voice channel
+  if (!perms.has(PermissionFlagsBits.ViewChannel) || !perms.has(PermissionFlagsBits.Connect)) {
+    return true;
+  }
+
+  const name = (channel.name || "").toLowerCase();
+  if (
+    name.includes("private") ||
+    name.includes("staff") ||
+    name.includes("admin") ||
+    name.includes("hidden") ||
+    name.includes("high table") ||
+    name.includes("mafiya")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function stripWildcardSymbols(raw: string): string {
   return decodeFancyAndHomoglyphs(raw)
     .normalize("NFC")
@@ -866,10 +900,32 @@ export function evaluateContentForAutoMod(
           break;
         }
       }
+      if (matchedWords.length === 0) {
+        for (const rawWord of combinedWords) {
+          const w = rawWord.trim().toLowerCase();
+          if (w.length >= 4 && !allowSet.has(w) && !SAFE_WORDS.has(w)) {
+            if (compactedAscii.includes(w)) {
+              matchedWords.push(w);
+              break;
+            }
+          }
+        }
+      }
     }
 
     if (matchedWords.length > 0) {
       reasons.push(`Prohibited Language / Gali (${matchedWords[0]})`);
+      severity = "high";
+    }
+  }
+
+  // 5. Anti-Louding (Ear-Rape Noise / Excessive Shouting / Screaming)
+  if (config.antiLouding) {
+    const isExtremeCaps = capsLetters >= 14 && capsRatio >= 0.85;
+    const isExtremeScream = /(.)\1{9,}/i.test(content); // e.g. AAAAAAAAAA or EEEEEEEEEE
+    const isLoudingWord = /\b(earrape|ear\s*rape|mic\s*spam|loud\s*mic)\b/i.test(content);
+    if (isExtremeCaps || isExtremeScream || isLoudingWord) {
+      reasons.push("Louding / Ear-Rape Noise Violation");
       severity = "high";
     }
   }
@@ -1034,6 +1090,14 @@ export async function executeAutoModCheck(
   ]);
   if (systemExemptChannels.has(message.channelId)) return false;
 
+  // If the message was sent in a Voice Channel text chat:
+  // If it is a private VC, IGNORE IT per user instruction ("private vc ignore")
+  if (message.channel && typeof (message.channel as any).isVoiceBased === "function" && (message.channel as any).isVoiceBased()) {
+    if (isPrivateVoiceChannel(message.channel)) {
+      return false; // Silently ignore private VCs
+    }
+  }
+
   // Fetch member if not cached
   let member: GuildMember | null = message.member ?? null;
   if (!member && message.author?.id) {
@@ -1140,22 +1204,31 @@ export async function executeAutoModCheck(
       ? recordViolationStrike(guild.id, message.author.id)
       : 1;
 
-    const { durationMs, label: resolvedPunishment } = resolveEscalatedTimeoutMs(
+    const { durationMs, label: initialPunishment } = resolveEscalatedTimeoutMs(
       autoMod.punishment,
       severity,
       strikeCount,
       autoMod.escalatePunishment
     );
 
-    let actionNote = resolvedPunishment;
-    if (durationMs && member) {
+    let actionNote = initialPunishment;
+    let targetDurationMs = durationMs;
+
+    // Special rule for Louding: exactly 10 minutes timeout as requested by owner
+    if (violationReason.includes("Louding")) {
+      targetDurationMs = 10 * 60 * 1000;
+      actionNote = "Timeout (10 Minutes) [Anti-Louding]";
+    }
+
+    if (targetDurationMs && member) {
       if (member.moderatable) {
         try {
-          await member.timeout(durationMs, `AutoMod (Strike #${strikeCount}): ${violationReason}`);
-          // If the offender is currently inside a Voice Channel, immediately disconnect them from VC
-          if (member.voice?.channel) {
+          await member.timeout(targetDurationMs, `AutoMod (Strike #${strikeCount}): ${violationReason}`);
+          // If the offender is currently inside a PUBLIC Voice Channel, immediately disconnect them from VC
+          // (Private VCs are ignored per owner specification)
+          if (member.voice?.channel && !isPrivateVoiceChannel(member.voice.channel)) {
             await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`).catch(() => {});
-            actionNote += " + Kicked from VC";
+            actionNote += " + Kicked from Public VC";
           }
         } catch (err) {
           console.error("[automod:timeout:error]", err);

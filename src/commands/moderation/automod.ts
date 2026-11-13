@@ -53,6 +53,7 @@ const command: Command = {
               { name: "Anti-Caps (>75% ALL CAPS shouting)", value: "antiCaps" },
               { name: "Anti-Emoji (>10 emoji flood)", value: "antiEmoji" },
               { name: "Anti-Zalgo & Newline Flood", value: "antiZalgo" },
+              { name: "Anti-Louding (Ear-Rape / Noise Spam - 10m Timeout)", value: "antiLouding" },
               { name: "Auto-Escalation Strike Ladder", value: "escalatePunishment" },
               { name: "DM Notice on Punishment", value: "dmOnPunish" }
             )
@@ -177,6 +178,17 @@ const command: Command = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName("louding")
+        .setDescription("Toggle Anti-Louding (Ear-rape / noise / scream in VC/Chat - 10m Timeout)")
+        .addBooleanOption((opt) =>
+          opt
+            .setName("enabled")
+            .setDescription("Enable or disable Anti-Louding (Default: false)")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("test")
         .setDescription("Run Advanced AutoMod diagnostics on any text (bypass tricks, caps, emojis, etc.)")
         .addStringOption((opt) =>
@@ -233,6 +245,8 @@ const command: Command = {
             { name: "🔠 Anti-Caps", value: badge(config.antiCaps), inline: true },
             { name: "😀 Anti-Emoji", value: badge(config.antiEmoji), inline: true },
             { name: "👾 Anti-Zalgo/Lines", value: badge(config.antiZalgo), inline: true },
+            { name: "🔊 Anti-Louding", value: config.antiLouding ? "✅ Active (10m Timeout)" : "❌ Off (Default)", inline: true },
+            { name: "🎙️ Public VC Shield", value: "✅ Active (Private VCs Ignored)", inline: true },
             { name: "📈 Auto-Escalation", value: badge(config.escalatePunishment), inline: true },
             { name: "🛡️ Staff Immunity", value: config.adminImmunity ? "✅ Bypass On" : "⚠️ Off (All Filtered)", inline: true },
             { name: "🔨 Base Punishment", value: `\`${formatPunishmentLabel(config.punishment)}\``, inline: true },
@@ -510,6 +524,24 @@ const command: Command = {
                 enabled
                   ? "🛡️ **Admin & Staff Immunity is now ENABLED**.\nAdmins/Staff bypass AutoMod (regular members are still filtered)."
                   : "🛡️ **Admin & Staff Immunity is now DISABLED**.\nAutoMod will filter EVERYONE including Admins & Staff (messages deleted; Discord API prevents timing out Admins)."
+              ),
+          ],
+        });
+        break;
+      }
+
+      case "louding": {
+        const enabled = interaction.options.getBoolean("enabled", true);
+        updateAutoModConfig(guildId, { antiLouding: enabled });
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(enabled ? BRAND.colors.warning : BRAND.colors.success)
+              .setTitle(`🔊 Anti-Louding / Ear-Rape Filter: ${enabled ? "ENABLED" : "DISABLED"}`)
+              .setDescription(
+                enabled
+                  ? "🔊 **Anti-Louding is now ACTIVE!**\nAny ear-rape noise, screaming, excessive shouting, or loud mic spam in text or Public VC will trigger an **instant 10-Minute Timeout** and kick the offender from Public VC."
+                  : "🔇 **Anti-Louding is now DISABLED (Default).**\nStandard caps & noise limits apply without 10m timeouts."
               ),
           ],
         });

@@ -12,6 +12,7 @@
     "antiEmoji": true,
     "antiZalgo": true,
     "antiBadWords": true,
+    "antiLouding": false,
     "escalatePunishment": true,
     "dmOnPunish": true,
     "badWords": [
@@ -176,9 +177,9 @@
       "1508519539388977163",
       "1548374744695447623"
     ],
-    "punishment": "timeout_40s",
+    "punishment": "timeout_5m",
     "logChannelId": "1508536272048885853",
-    "updatedAt": 1794377300000,
+    "updatedAt": 1794383000000,
     "adminImmunity": true
   }
 }

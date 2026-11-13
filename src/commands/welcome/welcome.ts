@@ -12,6 +12,9 @@ import path from "path";
 import fs from "fs";
 import { Command } from "../../structures/Command";
 import {
+  DEFAULT_CHAT_DESCRIPTION,
+  DEFAULT_CHAT_PING,
+  DEFAULT_CHAT_TITLE,
   formatWelcomeText,
   getRandomWelcomeJoke,
   getWelcomeConfig,
@@ -468,16 +471,11 @@ const command: Command = {
           .setFooter({ text: getRandomWelcomeJoke() })
           .setTimestamp();
 
-        // 2. Chat greeting card (as requested from screenshot)
-        const chatPing = formatWelcomeText(config.chatWelcomePing || "💜 Yoo, {user}", interaction.member || interaction.user);
-        const chatTitle = formatWelcomeText(config.chatWelcomeTitle || "Welcome to {server}", interaction.member || interaction.user);
+        // 2. Chat greeting card (exclusive Vyntric design)
+        const chatPing = formatWelcomeText(config.chatWelcomePing || DEFAULT_CHAT_PING, interaction.member || interaction.user);
+        const chatTitle = formatWelcomeText(config.chatWelcomeTitle || DEFAULT_CHAT_TITLE, interaction.member || interaction.user);
         const chatDesc = formatWelcomeText(
-          config.chatWelcomeDescription ||
-            "🌸 Enjoy fun moments, make new friends..!\n" +
-            "Play together in a positive & active gaming community. 🔥\n\n" +
-            "» Don't forget to:\n" +
-            "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
-            "  » Chat and hang out right here in <#1560688449353420930> ⚡",
+          config.chatWelcomeDescription || DEFAULT_CHAT_DESCRIPTION,
           interaction.member || interaction.user
         );
 
@@ -486,7 +484,7 @@ const command: Command = {
           .setTitle(chatTitle.slice(0, 256))
           .setThumbnail(avatarUrl)
           .setDescription(chatDesc)
-          .setFooter({ text: `${interaction.guild.name} • Welcome to the family` })
+          .setFooter({ text: `${interaction.guild.name} • Member #${interaction.guild.memberCount}` })
           .setTimestamp();
 
         const files: AttachmentBuilder[] = [];

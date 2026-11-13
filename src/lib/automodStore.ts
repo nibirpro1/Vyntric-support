@@ -22,6 +22,7 @@ export interface AutoModConfig {
   antiEmoji: boolean;
   antiZalgo: boolean;
   antiBadWords: boolean;
+  antiLouding: boolean;
   escalatePunishment: boolean;
   dmOnPunish: boolean;
   adminImmunity: boolean;
@@ -101,6 +102,7 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
       antiEmoji: true,
       antiZalgo: true,
       antiBadWords: true,
+      antiLouding: false,
       escalatePunishment: true,
       dmOnPunish: true,
       adminImmunity: true,
@@ -109,13 +111,14 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
       exemptUsers: [],
       exemptRoles: [],
       exemptChannels: [],
-      punishment: "timeout_40s",
+      punishment: "timeout_5m",
       logChannelId: null,
       updatedAt: Date.now(),
     };
   }
 
   const cfg = store[guildId];
+  if (cfg.antiLouding === undefined) cfg.antiLouding = false;
   // Backfill advanced fields cleanly for existing stored configs
   if (cfg.badWords) cfg.badWords = flattenWords(cfg.badWords);
   else cfg.badWords = [];

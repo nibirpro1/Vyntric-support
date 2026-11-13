@@ -23,12 +23,16 @@ export interface WelcomeConfig {
   chatWelcomeBannerUrl?: string | null;
 }
 
-const DEFAULT_CHAT_DESCRIPTION =
-  "🌸 Enjoy fun moments, make new friends..!\n" +
-  "Play together in a positive & active gaming community. 🔥\n\n" +
-  "» Don't forget to:\n" +
-  "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
-  "  » Chat and hang out right here in <#1560688449353420930> ⚡";
+export const DEFAULT_CHAT_PING = "👑 Welcome to Vyntric, {user}!";
+export const DEFAULT_CHAT_TITLE = "⚡ Welcome to Vyntric Network!";
+export const DEFAULT_CHAT_DESCRIPTION =
+  "Hey {user}, welcome aboard! 🚀\n" +
+  "You've stepped into **Vyntric** — home of competitive UHC tournaments, active SMP, and gaming hangouts!\n\n" +
+  "🌟 **Quick-Start Guide:**\n" +
+  "✦ 📜 Check <#1554018991759032320> to stay safe & know the guidelines\n" +
+  "✦ 🎭 Pick your game & notify roles in <#1551792726243287130>\n" +
+  "✦ 💬 Squad up and talk with everyone right here in <#1560688449353420930>\n" +
+  "✦ 🎁 Don't miss live giveaways & events in <#1552331192546623598>";
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -82,8 +86,8 @@ export function getWelcomeConfig(guildId: string): WelcomeConfig {
       leaveMessage: "👋 **{username}** has left **{server}**. We now have **{memberCount}** members.",
       chatWelcomeEnabled: true,
       chatWelcomeChannelId: "1560688449353420930", // #〢ᴄʜᴀᴛ
-      chatWelcomePing: "💜 Yoo, {user}",
-      chatWelcomeTitle: "Welcome to {server}",
+      chatWelcomePing: DEFAULT_CHAT_PING,
+      chatWelcomeTitle: DEFAULT_CHAT_TITLE,
       chatWelcomeDescription: DEFAULT_CHAT_DESCRIPTION,
       chatWelcomeBannerUrl: null,
       updatedAt: Date.now(),
@@ -93,9 +97,11 @@ export function getWelcomeConfig(guildId: string): WelcomeConfig {
     const cfg = store[guildId];
     if (cfg.chatWelcomeEnabled === undefined) cfg.chatWelcomeEnabled = true;
     if (!cfg.chatWelcomeChannelId) cfg.chatWelcomeChannelId = "1560688449353420930";
-    if (!cfg.chatWelcomePing) cfg.chatWelcomePing = "💜 Yoo, {user}";
-    if (!cfg.chatWelcomeTitle) cfg.chatWelcomeTitle = "Welcome to {server}";
-    if (!cfg.chatWelcomeDescription) cfg.chatWelcomeDescription = DEFAULT_CHAT_DESCRIPTION;
+    if (!cfg.chatWelcomePing || cfg.chatWelcomePing.includes("💜 Yoo")) cfg.chatWelcomePing = DEFAULT_CHAT_PING;
+    if (!cfg.chatWelcomeTitle) cfg.chatWelcomeTitle = DEFAULT_CHAT_TITLE;
+    if (!cfg.chatWelcomeDescription || cfg.chatWelcomeDescription.includes("Enjoy fun moments")) {
+      cfg.chatWelcomeDescription = DEFAULT_CHAT_DESCRIPTION;
+    }
   }
   return store[guildId];
 }

@@ -1,7 +1,14 @@
 import { Events, GuildMember, EmbedBuilder, TextChannel, AttachmentBuilder } from "discord.js";
 import path from "path";
 import fs from "fs";
-import { formatWelcomeText, getRandomWelcomeJoke, getWelcomeConfig } from "../lib/welcomeStore";
+import {
+  DEFAULT_CHAT_DESCRIPTION,
+  DEFAULT_CHAT_PING,
+  DEFAULT_CHAT_TITLE,
+  formatWelcomeText,
+  getRandomWelcomeJoke,
+  getWelcomeConfig,
+} from "../lib/welcomeStore";
 import { BRAND } from "../lib/brand";
 import { getAntiNukeConfig } from "../lib/antinukeStore";
 import { isImmune, executePunishment, sendAntiNukeAlert } from "../lib/antinukeManager";
@@ -145,24 +152,16 @@ export default {
           ((await member.guild.channels.fetch(config.chatWelcomeChannelId).catch(() => null)) as TextChannel | null);
 
         if (chatChannel && chatChannel.isTextBased()) {
-          const pingText = formatWelcomeText(config.chatWelcomePing || "💜 Yoo, {user}", member);
-          const titleText = formatWelcomeText(config.chatWelcomeTitle || "Welcome to {server}", member);
-          const descText = formatWelcomeText(
-            config.chatWelcomeDescription ||
-              "🌸 Enjoy fun moments, make new friends..!\n" +
-              "Play together in a positive & active gaming community. 🔥\n\n" +
-              "» Don't forget to:\n" +
-              "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
-              "  » Chat and hang out right here in <#1560688449353420930> ⚡",
-            member
-          );
+          const pingText = formatWelcomeText(config.chatWelcomePing || DEFAULT_CHAT_PING, member);
+          const titleText = formatWelcomeText(config.chatWelcomeTitle || DEFAULT_CHAT_TITLE, member);
+          const descText = formatWelcomeText(config.chatWelcomeDescription || DEFAULT_CHAT_DESCRIPTION, member);
 
           const chatEmbed = new EmbedBuilder()
             .setColor(BRAND.colors.primary)
             .setTitle(titleText.slice(0, 256))
             .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
             .setDescription(descText)
-            .setFooter({ text: `${member.guild.name} • Welcome to the family` })
+            .setFooter({ text: `${member.guild.name} • Member #${member.guild.memberCount}` })
             .setTimestamp();
 
           const chatFiles: AttachmentBuilder[] = [];

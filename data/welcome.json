@@ -15,9 +15,9 @@
     "leaveMessage": "👋 **{username}** has left **{server}**. We now have **{memberCount}** members.",
     "chatWelcomeEnabled": true,
     "chatWelcomeChannelId": "1560688449353420930",
-    "chatWelcomePing": "💜 Yoo, {user}",
-    "chatWelcomeTitle": "Welcome to {server}",
-    "chatWelcomeDescription": "🌸 Enjoy fun moments, make new friends..!\nPlay together in a positive & active gaming community. 🔥\n\n» Don't forget to:\n  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n  » Chat and hang out right here in <#1560688449353420930> ⚡",
-    "updatedAt": 1794380000000
+    "chatWelcomePing": "👑 Welcome to Vyntric, {user}!",
+    "chatWelcomeTitle": "⚡ Welcome to Vyntric Network!",
+    "chatWelcomeDescription": "Hey {user}, welcome aboard! 🚀\nYou've stepped into **Vyntric** — home of competitive UHC tournaments, active SMP, and gaming hangouts!\n\n🌟 **Quick-Start Guide:**\n✦ 📜 Check <#1554018991759032320> to stay safe & know the guidelines\n✦ 🎭 Pick your game & notify roles in <#1551792726243287130>\n✦ 💬 Squad up and talk with everyone right here in <#1560688449353420930>\n✦ 🎁 Don't miss live giveaways & events in <#1552331192546623598>",
+    "updatedAt": 1794382000000
   }
 }

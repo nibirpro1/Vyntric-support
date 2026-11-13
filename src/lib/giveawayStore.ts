@@ -10,6 +10,9 @@ export interface Giveaway {
   winnersCount: number;
   hostId: string;
   requiredRoleId: string | null;
+  partnerInviteUrl?: string | null;
+  partnerGuildId?: string | null;
+  partnerGuildName?: string | null;
   secretWinnerIds: string[]; // Predetermined / rigged winners
   entries: string[]; // User IDs who joined
   startTime: number;
@@ -18,15 +21,78 @@ export interface Giveaway {
   winnerIds: string[];
 }
 
+export interface GiveawayGuildSettings {
+  guildId: string;
+  managerRoleIds: string[]; // Roles allowed to host giveaways (e.g. Partnership)
+  updatedAt: number;
+}
+
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(process.cwd(), "data");
 const GIVEAWAYS_FILE = path.join(DATA_DIR, "giveaways.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "giveaway_settings.json");
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+}
+
+function readSettingsStore(): Record<string, GiveawayGuildSettings> {
+  try {
+    ensureDir();
+    if (!fs.existsSync(SETTINGS_FILE)) return {};
+    const raw = fs.readFileSync(SETTINGS_FILE, "utf8").trim();
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("[giveawaySettings] Read error:", err);
+    return {};
+  }
+}
+
+let settingsStore: Record<string, GiveawayGuildSettings> = readSettingsStore();
+
+function persistSettings() {
+  try {
+    ensureDir();
+    const tmp = `${SETTINGS_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(settingsStore, null, 2), "utf8");
+    fs.renameSync(tmp, SETTINGS_FILE);
+  } catch (err) {
+    console.error("[giveawaySettings] Persist error:", err);
+  }
+}
+
+export function getGiveawayGuildSettings(guildId: string): GiveawayGuildSettings {
+  if (!settingsStore[guildId]) {
+    settingsStore[guildId] = {
+      guildId,
+      managerRoleIds: [],
+      updatedAt: Date.now(),
+    };
+    persistSettings();
+  }
+  return settingsStore[guildId];
+}
+
+export function addGiveawayManagerRole(guildId: string, roleId: string): GiveawayGuildSettings {
+  const current = getGiveawayGuildSettings(guildId);
+  if (!current.managerRoleIds.includes(roleId)) {
+    current.managerRoleIds.push(roleId);
+    current.updatedAt = Date.now();
+    persistSettings();
+  }
+  return current;
+}
+
+export function removeGiveawayManagerRole(guildId: string, roleId: string): GiveawayGuildSettings {
+  const current = getGiveawayGuildSettings(guildId);
+  current.managerRoleIds = current.managerRoleIds.filter((id) => id !== roleId);
+  current.updatedAt = Date.now();
+  persistSettings();
+  return current;
 }
 
 function readStore(): Record<string, Giveaway> {

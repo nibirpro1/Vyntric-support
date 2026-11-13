@@ -2,6 +2,7 @@ import {
   ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  GuildMember,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -18,11 +19,14 @@ import {
   scheduleGiveawayTimer,
 } from "../../lib/giveawayManager";
 import {
+  addGiveawayManagerRole,
   clearSecretWinners,
   deleteGiveaway,
   getActiveGiveaways,
   getGiveaway,
+  getGiveawayGuildSettings,
   Giveaway,
+  removeGiveawayManagerRole,
   saveGiveaway,
   setSecretWinner,
 } from "../../lib/giveawayStore";
@@ -31,8 +35,7 @@ import { VyntricClient } from "../../structures/VyntricClient";
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("giveaway")
-    .setDescription("Host, manage, and configure giveaways with custom/secret winner selection")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDescription("Host, manage, and configure giveaways with partner requirements & manager roles")
     .addSubcommand((sub) =>
       sub
         .setName("start")
@@ -61,10 +64,16 @@ const command: Command = {
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(false)
         )
-        .addUserOption((opt) =>
+        .addStringOption((opt) =>
           opt
-            .setName("secret_winner")
-            .setDescription("🤫 Secretly guarantee this user wins (hidden from everyone)")
+            .setName("partner_server")
+            .setDescription("Discord invite link or server ID of partner server (users must join to enter)")
+            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("partner_name")
+            .setDescription("Custom display name for the partner server")
             .setRequired(false)
         )
         .addRoleOption((opt) =>
@@ -77,6 +86,34 @@ const command: Command = {
           opt
             .setName("host")
             .setDescription("Custom host user to display on the giveaway card")
+            .setRequired(false)
+        )
+        .addUserOption((opt) =>
+          opt
+            .setName("secret_winner")
+            .setDescription("🤫 Secretly guarantee this user wins (Admins only)")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("role")
+        .setDescription("Configure which roles (e.g. @Partnership, @Giveaway Host) can manage giveaways")
+        .addStringOption((opt) =>
+          opt
+            .setName("action")
+            .setDescription("Action to perform")
+            .setRequired(true)
+            .addChoices(
+              { name: "Add Manager Role", value: "add" },
+              { name: "Remove Manager Role", value: "remove" },
+              { name: "List Allowed Roles", value: "list" }
+            )
+        )
+        .addRoleOption((opt) =>
+          opt
+            .setName("role")
+            .setDescription("Role to grant or revoke giveaway permissions for")
             .setRequired(false)
         )
     )
@@ -117,7 +154,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("setwinner")
-        .setDescription("🤫 Rig / predetermine who will win an active giveaway")
+        .setDescription("🤫 Rig / predetermine who will win an active giveaway (Admin only)")
         .addStringOption((opt) =>
           opt.setName("message_id").setDescription("Giveaway message ID").setRequired(true)
         )
@@ -131,7 +168,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("resetwinner")
-        .setDescription("🎲 Reset giveaway back to 100% fair random mode (clears secret winner)")
+        .setDescription("🎲 Reset giveaway back to 100% fair random mode (Admin only)")
         .addStringOption((opt) =>
           opt.setName("message_id").setDescription("Giveaway message ID").setRequired(true)
         )
@@ -152,8 +189,90 @@ const command: Command = {
     if (!interaction.guild) return;
 
     const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guild.id;
+    const member = (interaction.member as GuildMember) || (await interaction.guild.members.fetch(interaction.user.id));
+    const settings = getGiveawayGuildSettings(guildId);
+
+    const isServerAdmin =
+      member.id === interaction.guild.ownerId ||
+      member.permissions.has(PermissionFlagsBits.Administrator) ||
+      member.permissions.has(PermissionFlagsBits.ManageGuild);
+
+    const hasManagerRole = settings.managerRoleIds.some((rId) => member.roles.cache.has(rId));
+    const canManageGiveaways = isServerAdmin || hasManagerRole;
+
+    // ─────────────────────────────────────────────────────────────
+    // PERMISSION CHECK
+    // ─────────────────────────────────────────────────────────────
+    if (sub === "role" || sub === "setwinner" || sub === "resetwinner") {
+      if (!isServerAdmin) {
+        await interaction.reply({
+          content: "❌ **Permission Denied:** Only Server Administrators can configure giveaway roles or secret winner controls.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    } else {
+      if (!canManageGiveaways) {
+        const allowedRolesText =
+          settings.managerRoleIds.length > 0
+            ? settings.managerRoleIds.map((rId) => `<@&${rId}>`).join(", ")
+            : "No Giveaway Manager role configured yet (ask an Admin to run `/giveaway role`)";
+
+        await interaction.reply({
+          content:
+            `❌ **Permission Denied:** You do not have permission to host or manage giveaways.\n\n` +
+            `🔹 **Required:** Manage Server permission or one of these authorized roles: ${allowedRolesText}`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
 
     switch (sub) {
+      case "role": {
+        const action = interaction.options.getString("action", true);
+        const role = interaction.options.getRole("role");
+
+        if (action === "list") {
+          const listEmbed = new EmbedBuilder()
+            .setColor(BRAND.colors.primary)
+            .setTitle("🎁 Giveaway Manager Roles")
+            .setDescription(
+              settings.managerRoleIds.length > 0
+                ? settings.managerRoleIds.map((id) => `• <@&${id}>`).join("\n")
+                : "No custom Giveaway Manager roles configured.\n*(Currently only Administrators & Server Managers can host giveaways)*"
+            )
+            .setFooter({ text: "Use /giveaway role action:Add Manager Role to authorize partnership roles" });
+
+          await interaction.reply({ embeds: [listEmbed], flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        if (!role) {
+          await interaction.reply({
+            content: "⚠️ You must select a `role` for this action.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        if (action === "add") {
+          addGiveawayManagerRole(guildId, role.id);
+          await interaction.reply({
+            content: `✅ Role <@&${role.id}> has been granted **Giveaway Manager** permissions!\nMembers with this role can now use \`/giveaway start\`, \`/giveaway end\`, \`/giveaway reroll\`, and \`/giveaway cancel\`.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        } else if (action === "remove") {
+          removeGiveawayManagerRole(guildId, role.id);
+          await interaction.reply({
+            content: `🗑️ Removed <@&${role.id}> from Giveaway Manager roles.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        break;
+      }
+
       case "start": {
         const prize = interaction.options.getString("prize", true);
         const durationStr = interaction.options.getString("duration", true);
@@ -164,6 +283,16 @@ const command: Command = {
         const secretWinner = interaction.options.getUser("secret_winner");
         const requiredRole = interaction.options.getRole("required_role");
         const host = interaction.options.getUser("host") || interaction.user;
+        const partnerServerInput = interaction.options.getString("partner_server");
+        const partnerNameInput = interaction.options.getString("partner_name");
+
+        if (secretWinner && !isServerAdmin) {
+          await interaction.reply({
+            content: "❌ Only server administrators can set secret winners.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
 
         const durationMs = parseDuration(durationStr);
         if (!durationMs) {
@@ -180,6 +309,40 @@ const command: Command = {
         const now = Date.now();
         const endTime = now + durationMs;
 
+        // Resolve Partner Server / Invite link
+        let partnerInviteUrl: string | null = null;
+        let partnerGuildId: string | null = null;
+        let partnerGuildName: string | null = partnerNameInput?.trim() || null;
+
+        if (partnerServerInput) {
+          const trimmed = partnerServerInput.trim();
+          const inviteMatch = trimmed.match(
+            /(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)([a-zA-Z0-9-]+)/i
+          );
+          if (inviteMatch) {
+            const code = inviteMatch[1];
+            partnerInviteUrl = `https://discord.gg/${code}`;
+            try {
+              const res = await fetch(`https://discord.com/api/v10/invites/${code}`);
+              if (res.ok) {
+                const inviteData: any = await res.json();
+                partnerGuildId = inviteData.guild?.id || null;
+                if (!partnerGuildName) {
+                  partnerGuildName = inviteData.guild?.name || null;
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          } else if (/^\d{17,20}$/.test(trimmed)) {
+            partnerGuildId = trimmed;
+            const g = client.guilds.cache.get(partnerGuildId);
+            if (g && !partnerGuildName) partnerGuildName = g.name;
+          } else if (trimmed.startsWith("http")) {
+            partnerInviteUrl = trimmed;
+          }
+        }
+
         // Temporary object to build initial card
         const initialGiveaway: Giveaway = {
           id: "",
@@ -190,6 +353,9 @@ const command: Command = {
           winnersCount,
           hostId: host.id,
           requiredRoleId: requiredRole?.id || null,
+          partnerInviteUrl: partnerInviteUrl || null,
+          partnerGuildId: partnerGuildId || null,
+          partnerGuildName: partnerGuildName || null,
           secretWinnerIds: secretWinner ? [secretWinner.id] : [],
           entries: secretWinner ? [secretWinner.id] : [],
           startTime: now,
@@ -235,6 +401,16 @@ const command: Command = {
           if (requiredRole) {
             replyLines.push(`📜 **Required Role:** <@&${requiredRole.id}>`);
           }
+          if (partnerInviteUrl || partnerGuildName) {
+            replyLines.push(
+              `🔗 **Partner Server Requirement:** ${partnerGuildName ? `**${partnerGuildName}**` : ""} (${partnerInviteUrl || "Configured"})`
+            );
+            if (partnerGuildId && !client.guilds.cache.has(partnerGuildId)) {
+              replyLines.push(
+                `💡 *Tip: Invite Plugsy to the partner server so it can automatically verify that users have joined before entering!*`
+              );
+            }
+          }
 
           await interaction.editReply({
             content: replyLines.join("\n"),
@@ -258,18 +434,13 @@ const command: Command = {
         const result = await endGiveaway(messageId, client, forcedWinner?.id, forceRandom);
         if (!result.success) {
           await interaction.editReply({
-            content: `❌ ${result.message || "Failed to end giveaway."}`,
+            content: `❌ ${result.message || "Could not end giveaway."}`,
           });
           return;
         }
 
-        const winnersStr =
-          result.winners.length > 0
-            ? result.winners.map((w) => `<@${w}>`).join(", ")
-            : "No valid entries";
-
         await interaction.editReply({
-          content: `✅ Giveaway ended! Winners: ${winnersStr}${forceRandom ? " (Selected randomly)" : ""}`,
+          content: `✅ **Giveaway ended successfully!**\n🏆 **Winner(s):** ${result.winners.map((id) => `<@${id}>`).join(", ")}`,
         });
         break;
       }
@@ -278,18 +449,26 @@ const command: Command = {
         const messageId = interaction.options.getString("message_id", true).trim();
         const secretWinner = interaction.options.getUser("secret_winner");
 
+        if (secretWinner && !isServerAdmin) {
+          await interaction.reply({
+            content: "❌ Only server administrators can secretly choose reroll winners.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const result = await rerollGiveaway(messageId, client, secretWinner?.id);
         if (!result.success) {
           await interaction.editReply({
-            content: `❌ ${result.message || "Failed to reroll giveaway."}`,
+            content: `❌ ${result.message || "Could not reroll giveaway."}`,
           });
           return;
         }
 
         await interaction.editReply({
-          content: `🎉 New winner selected: <@${result.newWinner}>!`,
+          content: `🎲 **Giveaway rerolled successfully!**\n🏆 **New Winner:** ${result.newWinner ? `<@${result.newWinner}>` : "None"}`,
         });
         break;
       }
@@ -298,31 +477,17 @@ const command: Command = {
         const messageId = interaction.options.getString("message_id", true).trim();
         const targetUser = interaction.options.getUser("user", true);
 
-        const g = getGiveaway(messageId);
-        if (!g) {
+        const ok = setSecretWinner(messageId, targetUser.id);
+        if (!ok) {
           await interaction.reply({
-            content: `❌ Giveaway with Message ID \`${messageId}\` was not found.`,
+            content: "❌ Giveaway not found or already ended.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
-
-        if (g.ended) {
-          await interaction.reply({
-            content: `❌ This giveaway has already ended! Use \`/giveaway reroll\` instead.`,
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        setSecretWinner(messageId, targetUser.id);
 
         await interaction.reply({
-          content: [
-            `🤫 **Secret Winner Set!**`,
-            `User <@${targetUser.id}> is now guaranteed to win the giveaway for **${g.prize}** when it ends.`,
-            `-# This action is completely confidential and only visible to you. Use \`/giveaway resetwinner\` if you ever want to revert back to random.`,
-          ].join("\n"),
+          content: `🤫 **Secret Winner Set!** <@${targetUser.id}> is now guaranteed to win giveaway \`${messageId}\`!\n*(This is 100% hidden from regular members)*`,
           flags: MessageFlags.Ephemeral,
         });
         break;
@@ -330,27 +495,17 @@ const command: Command = {
 
       case "resetwinner": {
         const messageId = interaction.options.getString("message_id", true).trim();
-        const g = getGiveaway(messageId);
-        if (!g) {
+        const ok = clearSecretWinners(messageId);
+        if (!ok) {
           await interaction.reply({
-            content: `❌ Giveaway with Message ID \`${messageId}\` was not found.`,
+            content: "❌ Giveaway not found or already ended.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
-
-        if (g.ended) {
-          await interaction.reply({
-            content: `❌ This giveaway has already ended!`,
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        clearSecretWinners(messageId);
 
         await interaction.reply({
-          content: `🎲 **Giveaway Reset to Random!**\nAny secret/predetermined winners have been removed for **${g.prize}**. When this giveaway ends, winners will be picked 100% fairly and randomly from all entries!`,
+          content: `🎲 **Secret winners cleared.** Giveaway \`${messageId}\` is now 100% fair & random!`,
           flags: MessageFlags.Ephemeral,
         });
         break;
@@ -359,10 +514,9 @@ const command: Command = {
       case "cancel": {
         const messageId = interaction.options.getString("message_id", true).trim();
         const g = getGiveaway(messageId);
-
         if (!g) {
           await interaction.reply({
-            content: `❌ Giveaway with Message ID \`${messageId}\` not found.`,
+            content: "❌ Giveaway not found.",
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -370,22 +524,12 @@ const command: Command = {
 
         deleteGiveaway(messageId);
 
-        // Delete or disable original message
         try {
-          const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
-          if (channel) {
-            const msg = await channel.messages.fetch(messageId).catch(() => null);
+          const ch = (await client.channels.fetch(g.channelId)) as TextChannel;
+          if (ch) {
+            const msg = await ch.messages.fetch(messageId);
             if (msg) {
-              await msg.edit({
-                embeds: [
-                  new EmbedBuilder()
-                    .setColor(BRAND.colors.danger)
-                    .setTitle(`🚫 GIVEAWAY CANCELLED: ${g.prize}`)
-                    .setDescription(`This giveaway was cancelled by staff.`)
-                    .setFooter({ text: `${BRAND.name} Giveaways` }),
-                ],
-                components: [],
-              }).catch(() => {});
+              await msg.delete();
             }
           }
         } catch {
@@ -393,7 +537,7 @@ const command: Command = {
         }
 
         await interaction.reply({
-          content: `✅ Cancelled giveaway for **${g.prize}**.`,
+          content: `🗑️ **Giveaway cancelled** and message deleted.`,
           flags: MessageFlags.Ephemeral,
         });
         break;
@@ -419,7 +563,9 @@ const command: Command = {
                   `**${i + 1}. [${g.prize}](https://discord.com/channels/${g.guildId}/${g.channelId}/${g.messageId})**\n` +
                   `📍 <#${g.channelId}> | ⏳ Ends: <t:${Math.floor(g.endTime / 1000)}:R> | 👥 Entries: \`${g.entries.length}\`\n` +
                   `🆔 Message ID: \`${g.messageId}\`${
-                    g.secretWinnerIds && g.secretWinnerIds.length > 0
+                    g.partnerGuildName ? ` | 🔗 Partner: **${g.partnerGuildName}**` : ""
+                  }${
+                    g.secretWinnerIds && g.secretWinnerIds.length > 0 && isServerAdmin
                       ? ` | 🤫 Secret Winner: <@${g.secretWinnerIds[0]}>`
                       : ""
                   }`

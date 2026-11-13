@@ -51,6 +51,12 @@ export function buildGiveawayEmbed(g: Giveaway): EmbedBuilder {
   const year = endDate.getFullYear();
   const dateFormatted = `${day}/${month}/${year}`;
 
+  const partnerReqText = g.partnerInviteUrl
+    ? `🔹 **Must Join Partner:** [${g.partnerGuildName || "Partner Server"}](${g.partnerInviteUrl})`
+    : g.partnerGuildName
+    ? `🔹 **Must Join Partner:** **${g.partnerGuildName}**`
+    : null;
+
   const embed = new EmbedBuilder()
     .setColor(0x00d2d3) // Teal/Cyan matching the user screenshot
     .setAuthor({ name: "🎁 New Giveaway 🎁" })
@@ -61,6 +67,7 @@ export function buildGiveawayEmbed(g: Giveaway): EmbedBuilder {
         `🔹 **Ends:** <t:${endTimestampSec}:R> ( <t:${endTimestampSec}:f> )`,
         `🔹 **Hosted by:** <@${g.hostId}>`,
         g.requiredRoleId ? `🔹 **Required Role:** <@&${g.requiredRoleId}>` : null,
+        partnerReqText,
         "",
         `🔹 React with 🎉 or click below to participate!`,
         `🔹 **Entries:** \`${g.entries.length}\``,
@@ -84,7 +91,19 @@ export function buildGiveawayComponents(g: Giveaway): ActionRowBuilder<ButtonBui
     .setLabel("👥 View Entries")
     .setStyle(ButtonStyle.Secondary);
 
-  return [new ActionRowBuilder<ButtonBuilder>().addComponents(enterBtn, viewBtn)];
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(enterBtn, viewBtn);
+
+  if (g.partnerInviteUrl) {
+    const partnerLabel = `Join ${g.partnerGuildName ? g.partnerGuildName.slice(0, 30) : "Partner"}`;
+    const partnerBtn = new ButtonBuilder()
+      .setLabel(partnerLabel)
+      .setEmoji("🔗")
+      .setStyle(ButtonStyle.Link)
+      .setURL(g.partnerInviteUrl);
+    row.addComponents(partnerBtn);
+  }
+
+  return [row];
 }
 
 export function buildEndedGiveawayEmbed(g: Giveaway, winnersText: string): EmbedBuilder {
@@ -349,6 +368,31 @@ export async function handleGiveawayButton(
           flags: MessageFlags.Ephemeral,
         });
         return;
+      }
+    }
+
+    // Partner server requirement check ("oder server must dhuka lagbe")
+    if (g.partnerGuildId || g.partnerInviteUrl) {
+      if (g.partnerGuildId) {
+        const partnerGuild = client.guilds.cache.get(g.partnerGuildId);
+        if (partnerGuild) {
+          // Bot is in the partner server: verify real-time membership!
+          const partnerMember =
+            partnerGuild.members.cache.get(interaction.user.id) ||
+            (await partnerGuild.members.fetch(interaction.user.id).catch(() => null));
+
+          if (!partnerMember) {
+            await interaction.reply({
+              content:
+                `❌ **Partner Server Requirement Not Met!**\n\n` +
+                `You must join our partner server **${g.partnerGuildName || partnerGuild.name}** to participate in this giveaway!\n\n` +
+                `🔗 **Join Link:** ${g.partnerInviteUrl || "https://discord.gg"}\n\n` +
+                `*Once you have joined their server, come back and click **Enter** again!*`,
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
+        }
       }
     }
 

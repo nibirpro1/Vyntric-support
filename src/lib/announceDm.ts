@@ -37,7 +37,7 @@ export function getBroadcastCooldownRemaining(guildId: string, cooldownSec = 30)
 export async function runDmBroadcast(
   interaction: ChatInputCommandInteraction,
   dmEmbed: EmbedBuilder,
-  arg3: ActionRowBuilder<ButtonBuilder>[] | string | null | undefined,
+  arg3?: ActionRowBuilder<ButtonBuilder>[] | string | null,
   arg4?: string | null,
   arg5?: string
 ) {
@@ -50,11 +50,13 @@ export async function runDmBroadcast(
   let roleFilterId: string | null = null;
   let startMessage = "";
 
-  if (Array.isArray(arg3)) {
-    dmComponents = arg3;
+  // If 5th parameter is provided or arg3 is an array, treat as (interaction, embed, components, roleId, startMsg)
+  if (Array.isArray(arg3) || arg5 !== undefined) {
+    dmComponents = Array.isArray(arg3) && arg3.length > 0 ? arg3 : undefined;
     roleFilterId = arg4 ?? null;
     startMessage = arg5 ?? "";
   } else {
+    // Legacy 4-arg signature: (interaction, embed, roleId, startMsg)
     dmComponents = undefined;
     roleFilterId = (arg3 as string | null) ?? null;
     startMessage = arg4 ?? "";

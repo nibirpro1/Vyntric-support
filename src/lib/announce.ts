@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ColorResolvable,
   EmbedBuilder,
   Guild,
   GuildMember,
@@ -17,84 +18,182 @@ export interface AnnouncementInput {
   actorTag: string;
   pingRoleId?: string | null;
   jumpUrl?: string | null;
+  color?: string | null;
+  image?: string | null;
+  thumbnail?: string | null;
+  footer?: string | null;
+  buttonLabel?: string | null;
+  buttonUrl?: string | null;
+  dmStyle?: "exact" | "notice";
+}
+
+/** Resolves hex color strings or presets to Discord ColorResolvable (defaults to Vyntric Red). */
+export function resolveEmbedColor(colorStr?: string | null): ColorResolvable {
+  if (!colorStr) return BRAND.colors.primary;
+  const clean = colorStr.trim();
+  if (/^#?[0-9a-fA-F]{6}$/.test(clean)) {
+    return (clean.startsWith("#") ? clean : `#${clean}`) as ColorResolvable;
+  }
+  return BRAND.colors.primary;
 }
 
 /** The announcement embed that is posted in the server channel. */
-export function buildAnnouncementEmbed(input: AnnouncementInput) {
+export function buildAnnouncementEmbed(input: AnnouncementInput, guild?: Guild) {
+  const color = resolveEmbedColor(input.color);
   const embed = new EmbedBuilder()
-    .setColor(BRAND.colors.primary)
-    .setTitle(input.title.slice(0, 250))
+    .setColor(color)
+    .setTitle(input.title.slice(0, 256))
     .setDescription(
       [
         input.message,
-        input.alert ? `\n🔔 ${input.alert}` : "",
+        input.alert ? `\n\n🔔 ${input.alert}` : "",
       ]
         .filter(Boolean)
         .join("\n")
-    );
+    )
+    .setTimestamp();
 
-  const banner = getBrandBanner();
-  if (banner) embed.setImage(banner);
+  if (input.footer) {
+    embed.setFooter({ text: input.footer.slice(0, 2048) });
+  }
+
+  // Thumbnail handling
+  const thumb = input.thumbnail?.trim();
+  if (thumb && thumb !== "none" && thumb !== "false") {
+    if ((thumb === "server" || thumb === "guild" || thumb === "icon") && guild) {
+      const icon = guild.iconURL({ size: 256 });
+      if (icon) embed.setThumbnail(icon);
+    } else if (/^https?:\/\/.+/i.test(thumb)) {
+      embed.setThumbnail(thumb);
+    }
+  }
+
+  // Image / Banner handling
+  const img = input.image?.trim();
+  if (img && img !== "none" && /^https?:\/\/.+/i.test(img)) {
+    embed.setImage(img);
+  } else if (!img && getBrandBanner()) {
+    embed.setImage(getBrandBanner()!);
+  }
+
   return embed;
 }
 
 /**
- * The DM alert every member receives matching the user's requested screenshot style:
- * - Author: [Server Name] Dm Notice with server icon
- * - Title: ⌨️ [Title]
- * - Thumbnail: Vyntric Server Logo
- * - Description: Announcement text + [🔴 Server Name › # channel-name](jumpUrl)
+ * The DM alert sent to members.
+ * Default style ("exact"): Exactly 1:1 matches the channel embed (clean, no forced prefixes/suffixes, red border).
+ * Alternative style ("notice"): Compact notice card with author header and jump pill.
  */
 export function buildAnnouncementDmEmbed(
   input: AnnouncementInput,
   guild: Guild,
   channelName?: string
 ): EmbedBuilder {
-  const guildIcon = guild.iconURL({ size: 256 }) || undefined;
-  const channelDisplay = channelName ? channelName.replace(/^#/, "") : "announcements";
-  const pillText = `[🔴 **${guild.name}** › **# ${channelDisplay}**](${input.jumpUrl || "https://discord.com"})`;
+  const color = resolveEmbedColor(input.color);
 
-  let displayMessage = input.message;
-  // If the user's message is just a raw Discord message jump link, don't show an ugly naked link
-  if (/^https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/\d+\/\d+\/\d+$/i.test(displayMessage.trim())) {
-    displayMessage = input.alert ? input.alert : "A new announcement has been published in the server!";
+  // If user explicitly chose "notice" card style
+  if (input.dmStyle === "notice") {
+    const guildIcon = guild.iconURL({ size: 256 }) || undefined;
+    const channelDisplay = channelName ? channelName.replace(/^#/, "") : "announcements";
+    const pillText = `[🔴 **${guild.name}** › **# ${channelDisplay}**](${input.jumpUrl || "https://discord.com"})`;
+
+    let displayMessage = input.message;
+    if (/^https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/\d+\/\d+\/\d+$/i.test(displayMessage.trim())) {
+      displayMessage = input.alert ? input.alert : "A new announcement has been published in the server!";
+    }
+
+    const descriptionParts = [
+      displayMessage ? displayMessage : (input.alert ? input.alert : ""),
+      "",
+      pillText,
+    ].filter((p) => p !== null && p !== undefined && p !== "");
+
+    const titleText = input.title.startsWith("⌨️") || input.title.startsWith("🔔")
+      ? input.title
+      : `⌨️ ${input.title}`;
+
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setAuthor({
+        name: `${guild.name} Dm Notice`,
+        iconURL: guildIcon,
+      })
+      .setTitle(titleText.slice(0, 256))
+      .setDescription(descriptionParts.join("\n").replace(/\n{3,}/g, "\n\n").trim())
+      .setTimestamp();
+
+    if (guildIcon) {
+      embed.setThumbnail(guildIcon);
+    }
+    return embed;
   }
 
-  const descriptionParts = [
-    displayMessage ? displayMessage : (input.alert ? input.alert : ""),
-    "",
-    pillText,
-  ].filter((p) => p !== null && p !== undefined && p !== "");
-
-  const titleText = input.title.startsWith("⌨️") || input.title.startsWith("🔔")
-    ? input.title
-    : `⌨️ ${input.title}`;
-
+  // DEFAULT STYLE ("exact"):
+  // Clean, sleek, elegant, 1:1 exact match to what the user designed (matches Screenshot 1).
+  // Red border, clean title (no forced "⌨️"), clean body (no forced [🔴 Server > # CHAT]).
   const embed = new EmbedBuilder()
-    .setColor(0x2b2d31)
-    .setAuthor({
-      name: `${guild.name} Dm Notice`,
-      iconURL: guildIcon,
-    })
-    .setTitle(titleText.slice(0, 250))
-    .setDescription(descriptionParts.join("\n").replace(/\n{3,}/g, "\n\n").trim());
+    .setColor(color)
+    .setTitle(input.title.slice(0, 256))
+    .setDescription(
+      [
+        input.message,
+        input.alert ? `\n\n🔔 ${input.alert}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .setTimestamp();
 
-  if (guildIcon) {
-    embed.setThumbnail(guildIcon);
+  if (input.footer) {
+    embed.setFooter({ text: input.footer.slice(0, 2048) });
+  }
+
+  // Thumbnail handling for DM
+  const thumb = input.thumbnail?.trim();
+  if (thumb && thumb !== "none" && thumb !== "false") {
+    if ((thumb === "server" || thumb === "guild" || thumb === "icon")) {
+      const icon = guild.iconURL({ size: 256 });
+      if (icon) embed.setThumbnail(icon);
+    } else if (/^https?:\/\/.+/i.test(thumb)) {
+      embed.setThumbnail(thumb);
+    }
+  }
+
+  // Image handling for DM (only if explicitly specified)
+  const img = input.image?.trim();
+  if (img && img !== "none" && /^https?:\/\/.+/i.test(img)) {
+    embed.setImage(img);
   }
 
   return embed;
 }
 
 /**
- * Creates the link button underneath the DM embed:
- * "Jump to update channel and check it out!"
+ * Creates the optional link button underneath the DM embed.
+ * If buttonLabel is provided (and not "none"), attaches a single link button.
+ * If omitted or "none", returns undefined (no button attached, matching Screenshot 1).
  */
-export function buildAnnouncementDmComponents(jumpUrl: string): ActionRowBuilder<ButtonBuilder>[] {
+export function buildAnnouncementDmComponents(
+  input: AnnouncementInput,
+  jumpUrl: string
+): ActionRowBuilder<ButtonBuilder>[] | undefined {
+  const label = input.buttonLabel?.trim();
+  if (!label || label.toLowerCase() === "none") {
+    // If notice style was explicitly chosen and no button label provided, default to jump button
+    if (input.dmStyle === "notice") {
+      const btn = new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("Jump to update channel and check it out!")
+        .setURL(input.buttonUrl || jumpUrl);
+      return [new ActionRowBuilder<ButtonBuilder>().addComponents(btn)];
+    }
+    return undefined;
+  }
+
   const btn = new ButtonBuilder()
     .setStyle(ButtonStyle.Link)
-    .setLabel("Jump to update channel and check it out!")
-    .setURL(jumpUrl);
+    .setLabel(label.slice(0, 80))
+    .setURL(input.buttonUrl || jumpUrl);
 
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(btn)];
 }

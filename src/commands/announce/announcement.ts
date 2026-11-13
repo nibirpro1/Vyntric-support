@@ -30,23 +30,16 @@ const command: Command = {
     .addStringOption((option) =>
       option
         .setName("title")
-        .setDescription("Announcement headline (e.g. Vyntric UHC Tournament)")
+        .setDescription("Announcement headline / title")
         .setRequired(true)
-        .setMaxLength(120)
+        .setMaxLength(256)
     )
     .addStringOption((option) =>
       option
         .setName("message")
-        .setDescription("Paste the full announcement text here (use \\n for line breaks)")
+        .setDescription("Full announcement text (use \\n for line breaks, markdown supported)")
         .setRequired(true)
-        .setMaxLength(1800)
-    )
-    .addStringOption((option) =>
-      option
-        .setName("alert")
-        .setDescription("Short DM alert line (e.g. Join the UHC tournament today!)")
-        .setRequired(false)
-        .setMaxLength(200)
+        .setMaxLength(4000)
     )
     .addChannelOption((option) =>
       option
@@ -54,23 +47,67 @@ const command: Command = {
         .setDescription("Channel to announce in (defaults to current channel)")
         .addChannelTypes(ChannelType.GuildText)
     )
-    .addRoleOption((option) =>
+    .addStringOption((option) =>
       option
-        .setName("ping-role")
-        .setDescription("Role to ping with the announcement")
+        .setName("button")
+        .setDescription("DM button text (e.g. 'Join Giveaway'). Leave empty for clean embed with no button.")
+        .setRequired(false)
+        .setMaxLength(80)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("color")
+        .setDescription("Embed left border color (defaults to Vyntric Red)")
+        .setRequired(false)
+        .addChoices(
+          { name: "Vyntric Red (Default)", value: "#b1121f" },
+          { name: "Crimson Accent", value: "#e23a4e" },
+          { name: "Emerald Green", value: "#2fbf71" },
+          { name: "Gold Yellow", value: "#f2c14e" },
+          { name: "Royal Blue", value: "#3a86ff" },
+          { name: "Purple", value: "#8338ec" },
+          { name: "Discord Dark", value: "#2b2d31" }
+        )
+    )
+    .addStringOption((option) =>
+      option
+        .setName("image")
+        .setDescription("Banner image URL to show at bottom of the embed")
         .setRequired(false)
     )
     .addStringOption((option) =>
       option
-        .setName("ping")
-        .setDescription("Also mention everyone or only online members")
+        .setName("thumbnail")
+        .setDescription("Thumbnail: type 'server' for server icon, a URL, or 'none'")
         .setRequired(false)
-        .addChoices({ name: "@everyone", value: "everyone" }, { name: "@here", value: "here" })
+    )
+    .addStringOption((option) =>
+      option
+        .setName("footer")
+        .setDescription("Custom footer text at the bottom of the embed")
+        .setRequired(false)
+        .setMaxLength(200)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("button-url")
+        .setDescription("Custom link for the DM button (defaults to announcement link)")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("dm-style")
+        .setDescription("DM look: 'exact' (clean matching embed) or 'notice' (card with header)")
+        .setRequired(false)
+        .addChoices(
+          { name: "Exact Match (Clean Red Embed)", value: "exact" },
+          { name: "Notice Card Style", value: "notice" }
+        )
     )
     .addBooleanOption((option) =>
       option
         .setName("dm")
-        .setDescription("Send the DM alert (default: yes)")
+        .setDescription("Send DM alert to members? (Default: true)")
         .setRequired(false)
     )
     .addRoleOption((option) =>
@@ -79,10 +116,30 @@ const command: Command = {
         .setDescription("Only DM members holding this role (e.g. Giveaway Role)")
         .setRequired(false)
     )
+    .addStringOption((option) =>
+      option
+        .setName("ping")
+        .setDescription("Mention @everyone or @here in the channel announcement")
+        .setRequired(false)
+        .addChoices({ name: "@everyone", value: "everyone" }, { name: "@here", value: "here" })
+    )
+    .addRoleOption((option) =>
+      option
+        .setName("ping-role")
+        .setDescription("Role to ping in the channel announcement")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("alert")
+        .setDescription("Optional short alert note line")
+        .setRequired(false)
+        .setMaxLength(200)
+    )
     .addBooleanOption((option) =>
       option
         .setName("preview")
-        .setDescription("Preview mode only: see how it looks without posting (default: false)")
+        .setDescription("Preview only: see how it looks without posting or sending DMs")
         .setRequired(false)
     ),
 
@@ -143,6 +200,13 @@ const command: Command = {
     const dmRole = interaction.options.getRole("dm-role");
     const sendDms = interaction.options.getBoolean("dm") ?? true;
     const previewMode = interaction.options.getBoolean("preview") ?? false;
+    const color = interaction.options.getString("color")?.trim() ?? null;
+    const button = interaction.options.getString("button")?.trim() ?? null;
+    const buttonUrl = interaction.options.getString("button-url")?.trim() ?? null;
+    const image = interaction.options.getString("image")?.trim() ?? null;
+    const thumbnail = interaction.options.getString("thumbnail")?.trim() ?? null;
+    const footer = interaction.options.getString("footer")?.trim() ?? null;
+    const dmStyle = (interaction.options.getString("dm-style") as "exact" | "notice" | null) ?? "exact";
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -153,10 +217,18 @@ const command: Command = {
       actorTag: interaction.user.tag,
       pingRoleId: pingRole?.id ?? null,
       jumpUrl: null,
+      color,
+      image,
+      thumbnail,
+      footer,
+      buttonLabel: button,
+      buttonUrl,
+      dmStyle,
     };
 
-    const channelEmbed = buildAnnouncementEmbed(input);
+    const channelEmbed = buildAnnouncementEmbed(input, interaction.guild);
     const dmEmbedPreview = buildAnnouncementDmEmbed(input, interaction.guild, target.name);
+    const dmComponentsPreview = buildAnnouncementDmComponents(input, "https://discord.com");
 
     const isDefaultChannel = !channelOption;
     const channelWarning = isDefaultChannel
@@ -166,11 +238,17 @@ const command: Command = {
     const summaryText = [
       `📢 **Target Channel:** <#${target.id}>${channelWarning}`,
       ping === "everyone" ? "🔔 **Ping:** `@everyone`" : ping === "here" ? "🔔 **Ping:** `@here`" : pingRole ? `🔔 **Ping:** <@&${pingRole.id}>` : "🔔 **Ping:** None",
+      `🎨 **Embed Color:** \`${color || "#b1121f (Vyntric Red)"}\``,
       sendDms
         ? dmRole
           ? `📨 **DM Broadcast:** Members with role <@&${dmRole.id}> (Sent 1 time per member)`
           : "📨 **DM Broadcast:** **Every server member** (Sent 1 time per member)"
         : "📨 **DM Broadcast:** **Disabled** (Channel only)",
+      `✨ **DM Style:** \`${dmStyle === "notice" ? "Notice Card Style" : "Exact Match (Clean Red Embed)"}\``,
+      button ? `🔘 **DM Button:** \`[ ${button} ]\`` : "🔘 **DM Button:** None (Clean embed)",
+      image ? `🖼️ **Banner Image:** ${image}` : null,
+      thumbnail ? `🖼️ **Thumbnail:** ${thumbnail}` : null,
+      footer ? `📝 **Footer:** ${footer}` : null,
       alert ? `💬 **DM Alert text:** ${alert}` : null,
     ]
       .filter(Boolean)
@@ -181,9 +259,9 @@ const command: Command = {
     // ─────────────────────────────────────────────────────────────
     if (previewMode) {
       await interaction.editReply({
-        content: `🔍 **Announcement Preview Mode** (Nothing has been posted or sent)\n\n${summaryText}\n\n_Embeds shown below:_`,
+        content: `🔍 **Announcement Preview Mode** (Nothing has been posted or sent)\n\n${summaryText}\n\n_Embed 1: Channel appearance | Embed 2: Member DM appearance_`,
         embeds: [channelEmbed, dmEmbedPreview],
-        components: [],
+        components: dmComponentsPreview ? dmComponentsPreview : [],
       });
       return;
     }
@@ -238,7 +316,7 @@ const command: Command = {
     });
 
     const dmEmbed = buildAnnouncementDmEmbed(input, interaction.guild, target.name);
-    const dmComponents = buildAnnouncementDmComponents(announcement.url);
+    const dmComponents = buildAnnouncementDmComponents(input, announcement.url);
 
     await runDmBroadcast(
       interaction,

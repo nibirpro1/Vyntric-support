@@ -14,7 +14,21 @@ export interface WelcomeConfig {
   leaveChannelId: string | null;
   leaveMessage: string;
   updatedAt: number;
+  // General chat greeting card (sent to #chat when someone joins)
+  chatWelcomeEnabled?: boolean;
+  chatWelcomeChannelId?: string | null;
+  chatWelcomePing?: string;
+  chatWelcomeTitle?: string;
+  chatWelcomeDescription?: string;
+  chatWelcomeBannerUrl?: string | null;
 }
+
+const DEFAULT_CHAT_DESCRIPTION =
+  "🌸 Enjoy fun moments, make new friends..!\n" +
+  "Play together in a positive & active gaming community. 🔥\n\n" +
+  "» Don't forget to:\n" +
+  "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
+  "  » Chat and hang out right here in <#1560688449353420930> ⚡";
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -66,8 +80,22 @@ export function getWelcomeConfig(guildId: string): WelcomeConfig {
       dmMessage: "Welcome to **{server}**, {user}! Make sure to read our rules and have fun!",
       leaveChannelId: null,
       leaveMessage: "👋 **{username}** has left **{server}**. We now have **{memberCount}** members.",
+      chatWelcomeEnabled: true,
+      chatWelcomeChannelId: "1560688449353420930", // #〢ᴄʜᴀᴛ
+      chatWelcomePing: "💜 Yoo, {user}",
+      chatWelcomeTitle: "Welcome to {server}",
+      chatWelcomeDescription: DEFAULT_CHAT_DESCRIPTION,
+      chatWelcomeBannerUrl: null,
       updatedAt: Date.now(),
     };
+  } else {
+    // Fill in default chat welcome values if undefined
+    const cfg = store[guildId];
+    if (cfg.chatWelcomeEnabled === undefined) cfg.chatWelcomeEnabled = true;
+    if (!cfg.chatWelcomeChannelId) cfg.chatWelcomeChannelId = "1560688449353420930";
+    if (!cfg.chatWelcomePing) cfg.chatWelcomePing = "💜 Yoo, {user}";
+    if (!cfg.chatWelcomeTitle) cfg.chatWelcomeTitle = "Welcome to {server}";
+    if (!cfg.chatWelcomeDescription) cfg.chatWelcomeDescription = DEFAULT_CHAT_DESCRIPTION;
   }
   return store[guildId];
 }

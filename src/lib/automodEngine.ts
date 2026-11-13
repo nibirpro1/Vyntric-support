@@ -1152,6 +1152,11 @@ export async function executeAutoModCheck(
       if (member.moderatable) {
         try {
           await member.timeout(durationMs, `AutoMod (Strike #${strikeCount}): ${violationReason}`);
+          // If the offender is currently inside a Voice Channel, immediately disconnect them from VC
+          if (member.voice?.channel) {
+            await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`).catch(() => {});
+            actionNote += " + Kicked from VC";
+          }
         } catch (err) {
           console.error("[automod:timeout:error]", err);
           actionNote = "Message deleted (Timeout failed - permissions)";

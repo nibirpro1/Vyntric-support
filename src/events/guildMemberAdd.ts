@@ -137,6 +137,57 @@ export default {
       }
     }
 
+    // 2.5. Send Short Beautiful Greeting Card to General Chat (e.g. #〢ᴄʜᴀᴛ)
+    if (config.chatWelcomeEnabled && config.chatWelcomeChannelId) {
+      try {
+        const chatChannel =
+          (member.guild.channels.cache.get(config.chatWelcomeChannelId) as TextChannel | undefined) ||
+          ((await member.guild.channels.fetch(config.chatWelcomeChannelId).catch(() => null)) as TextChannel | null);
+
+        if (chatChannel && chatChannel.isTextBased()) {
+          const pingText = formatWelcomeText(config.chatWelcomePing || "💜 Yoo, {user}", member);
+          const titleText = formatWelcomeText(config.chatWelcomeTitle || "Welcome to {server}", member);
+          const descText = formatWelcomeText(
+            config.chatWelcomeDescription ||
+              "🌸 Enjoy fun moments, make new friends..!\n" +
+              "Play together in a positive & active gaming community. 🔥\n\n" +
+              "» Don't forget to:\n" +
+              "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
+              "  » Chat and hang out right here in <#1560688449353420930> ⚡",
+            member
+          );
+
+          const chatEmbed = new EmbedBuilder()
+            .setColor(BRAND.colors.primary)
+            .setTitle(titleText.slice(0, 256))
+            .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+            .setDescription(descText)
+            .setFooter({ text: `${member.guild.name} • Welcome to the family` })
+            .setTimestamp();
+
+          const chatFiles: AttachmentBuilder[] = [];
+          if (config.chatWelcomeBannerUrl && config.chatWelcomeBannerUrl.trim().length > 0) {
+            chatEmbed.setImage(config.chatWelcomeBannerUrl.trim());
+          } else if (config.bannerUrl && config.bannerUrl.trim().length > 0) {
+            chatEmbed.setImage(config.bannerUrl.trim());
+          } else if (fs.existsSync(DEFAULT_BANNER_PATH)) {
+            const bannerAttachment = new AttachmentBuilder(DEFAULT_BANNER_PATH, { name: "vyntric-welcome.gif" });
+            chatEmbed.setImage("attachment://vyntric-welcome.gif");
+            chatFiles.push(bannerAttachment);
+          }
+
+          await chatChannel.send({
+            content: pingText,
+            embeds: [chatEmbed],
+            files: chatFiles,
+          });
+          console.log(`[welcome:chat] Sent chat greeting card to #${chatChannel.name} for ${member.user.tag}`);
+        }
+      } catch (err) {
+        console.error("[welcome:chat:error]", err);
+      }
+    }
+
     // 3. Send DM Welcome Message (skip bots since bots cannot receive user DMs)
     if (config.dmEnabled && config.dmMessage && !member.user.bot) {
       try {

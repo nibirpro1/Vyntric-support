@@ -129,6 +129,33 @@ const command: Command = {
       )
   )
   .addSubcommand((sub) =>
+    sub
+      .setName("chat")
+      .setDescription("Configure the short greeting card sent to general chat on member join")
+      .addBooleanOption((opt) =>
+        opt.setName("enabled").setDescription("Enable or disable the general chat welcome card").setRequired(true)
+      )
+      .addChannelOption((opt) =>
+        opt
+          .setName("channel")
+          .setDescription("The chat channel (defaults to #〢ᴄʜᴀᴛ)")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(false)
+      )
+      .addStringOption((opt) =>
+        opt
+          .setName("ping")
+          .setDescription("Ping line above the card (e.g. '💜 Yoo, {user}')")
+          .setRequired(false)
+      )
+      .addStringOption((opt) =>
+        opt
+          .setName("description")
+          .setDescription("Custom card text (supports markdown, \\n for new lines)")
+          .setRequired(false)
+      )
+  )
+  .addSubcommand((sub) =>
     sub.setName("status").setDescription("View current Welcome & Leave configuration")
   )
   .addSubcommand((sub) =>
@@ -321,6 +348,41 @@ const command: Command = {
         break;
       }
 
+      case "chat": {
+        const enabled = interaction.options.getBoolean("enabled", true);
+        const channel = interaction.options.getChannel("channel") as TextChannel | null;
+        const ping = interaction.options.getString("ping");
+        const description = interaction.options.getString("description")?.replace(/\\n/g, "\n");
+
+        const targetChannelId = channel ? channel.id : (config.chatWelcomeChannelId || "1560688449353420930");
+
+        updateWelcomeConfig(guildId, {
+          chatWelcomeEnabled: enabled,
+          chatWelcomeChannelId: targetChannelId,
+          ...(ping ? { chatWelcomePing: ping } : {}),
+          ...(description ? { chatWelcomeDescription: description } : {}),
+        });
+
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(BRAND.colors.success)
+              .setTitle("✅ Chat Greeting Card Configured")
+              .setDescription(
+                [
+                  `✨ **Chat Welcome Status:** ${enabled ? "✅ Enabled" : "❌ Disabled"}`,
+                  `💬 **Channel:** <#${targetChannelId}>`,
+                  `👋 **Ping Line:** \`${ping || config.chatWelcomePing || "💜 Yoo, {user}"}\``,
+                  "",
+                  "💡 When a new member joins, they will get a clean, stylish welcome card in this chat channel!",
+                  "Run `/welcome test` to preview how both cards look!",
+                ].join("\n")
+              ),
+          ],
+        });
+        break;
+      }
+
       case "status": {
         await interaction.deferReply();
         const autoRoles = config.autoRoleIds.map((id) => `<@&${id}>`).join(", ") || "None";
@@ -331,6 +393,11 @@ const command: Command = {
             {
               name: "📢 Welcome Channel",
               value: config.channelId ? `<#${config.channelId}>` : "❌ Disabled",
+              inline: true,
+            },
+            {
+              name: "💬 Chat Greeting Card",
+              value: config.chatWelcomeEnabled ? `✅ Enabled in <#${config.chatWelcomeChannelId || "1560688449353420930"}>` : "❌ Disabled",
               inline: true,
             },
             {
@@ -362,7 +429,7 @@ const command: Command = {
               value: `\`\`\`${config.leaveMessage}\`\`\``,
             }
           )
-          .setFooter({ text: "Use /welcome setup or /welcome banner to modify settings" });
+          .setFooter({ text: "Use /welcome setup or /welcome chat to modify settings" });
 
         const files: AttachmentBuilder[] = [];
         if (!config.bannerUrl && fs.existsSync(DEFAULT_BANNER_PATH)) {
@@ -384,10 +451,11 @@ const command: Command = {
         const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
         const formattedDesc = formatWelcomeText(config.message, interaction.member || interaction.user);
 
+        // 1. Official welcome channel card
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
           .setAuthor({
-            name: `Welcome to ${interaction.guild.name}! [TEST PREVIEW]`,
+            name: `Welcome to ${interaction.guild.name}! [OFFICIAL CHANNEL CARD]`,
             iconURL: interaction.guild.iconURL() || undefined,
           })
           .setThumbnail(avatarUrl)
@@ -400,18 +468,41 @@ const command: Command = {
           .setFooter({ text: getRandomWelcomeJoke() })
           .setTimestamp();
 
+        // 2. Chat greeting card (as requested from screenshot)
+        const chatPing = formatWelcomeText(config.chatWelcomePing || "💜 Yoo, {user}", interaction.member || interaction.user);
+        const chatTitle = formatWelcomeText(config.chatWelcomeTitle || "Welcome to {server}", interaction.member || interaction.user);
+        const chatDesc = formatWelcomeText(
+          config.chatWelcomeDescription ||
+            "🌸 Enjoy fun moments, make new friends..!\n" +
+            "Play together in a positive & active gaming community. 🔥\n\n" +
+            "» Don't forget to:\n" +
+            "  » Check our rules in <#1554018991759032320> and get roles in <#1551792726243287130>\n" +
+            "  » Chat and hang out right here in <#1560688449353420930> ⚡",
+          interaction.member || interaction.user
+        );
+
+        const chatEmbed = new EmbedBuilder()
+          .setColor(BRAND.colors.primary)
+          .setTitle(chatTitle.slice(0, 256))
+          .setThumbnail(avatarUrl)
+          .setDescription(chatDesc)
+          .setFooter({ text: `${interaction.guild.name} • Welcome to the family` })
+          .setTimestamp();
+
         const files: AttachmentBuilder[] = [];
         if (config.bannerUrl && config.bannerUrl.trim().length > 0) {
           embed.setImage(config.bannerUrl.trim());
+          chatEmbed.setImage(config.bannerUrl.trim());
         } else if (fs.existsSync(DEFAULT_BANNER_PATH)) {
           const bannerAttachment = new AttachmentBuilder(DEFAULT_BANNER_PATH, { name: "vyntric-welcome.gif" });
           embed.setImage("attachment://vyntric-welcome.gif");
+          chatEmbed.setImage("attachment://vyntric-welcome.gif");
           files.push(bannerAttachment);
         }
 
         await interaction.editReply({
-          content: "👀 **Test preview of your Welcome Card with Animated Vyntric Banner:**",
-          embeds: [embed],
+          content: `👀 **Test preview of Welcome Cards:**\n${chatPing}`,
+          embeds: [embed, chatEmbed],
           files,
         });
         break;

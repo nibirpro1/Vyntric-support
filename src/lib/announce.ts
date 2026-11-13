@@ -111,9 +111,17 @@ const BATCH_DELAY_MS = 1200;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Tracks recently DMed member IDs with timestamp (userId -> timestamp).
+ * Prevents duplicate DMs if an announcement command is re-run or edited within 3 minutes.
+ */
+const recentDmedUsers = new Map<string, number>();
+const RECENT_DM_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
+
+/**
  * DMs every human member of the guild (or only the members holding
  * `roleFilterId`) with the alert embed and link button.
  * Runs in batches to protect rate limits and retries on 429 backoff.
+ * Guaranteed: Exactly 1 DM per member. Never sends duplicate DMs.
  */
 export async function broadcastAnnouncementDm(options: {
   guild: Guild;
@@ -131,13 +139,25 @@ export async function broadcastAnnouncementDm(options: {
     members = [...guild.members.cache.values()];
   }
 
+  const now = Date.now();
+  // Evict entries older than 3 minutes
+  for (const [uid, timestamp] of recentDmedUsers.entries()) {
+    if (now - timestamp > RECENT_DM_WINDOW_MS) {
+      recentDmedUsers.delete(uid);
+    }
+  }
+
   // Target every human member in the server with deduplication
   const seenMemberIds = new Set<string>();
   const targets = members.filter((member) => {
     if (member.user.bot) return false;
+    // Single-run deduplication
     if (seenMemberIds.has(member.id)) return false;
     seenMemberIds.add(member.id);
+    // Role filter
     if (roleFilterId && !member.roles.cache.has(roleFilterId)) return false;
+    // Cross-run deduplication: if this member already received an announcement DM within 3 min, skip
+    if (recentDmedUsers.has(member.id)) return false;
     return true;
   });
 
@@ -158,6 +178,7 @@ export async function broadcastAnnouncementDm(options: {
             embeds: [embed],
             components: components ? components : [],
           });
+          recentDmedUsers.set(member.id, Date.now());
           result.sent += 1;
         } catch (err: any) {
           if (err?.status === 429) {
@@ -169,6 +190,7 @@ export async function broadcastAnnouncementDm(options: {
                 embeds: [embed],
                 components: components ? components : [],
               });
+              recentDmedUsers.set(member.id, Date.now());
               result.sent += 1;
               return;
             } catch {

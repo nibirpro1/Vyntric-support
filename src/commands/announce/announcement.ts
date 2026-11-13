@@ -1,9 +1,5 @@
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ChannelType,
-  ComponentType,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -29,7 +25,7 @@ import {
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("announcement")
-    .setDescription("Post a Vyntric announcement with preview & optional member DM broadcast")
+    .setDescription("Post a Vyntric announcement and alert members in DM (sent once per member)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((option) =>
       option
@@ -113,12 +109,12 @@ const command: Command = {
     }
 
     // 2. Cooldown guard (prevents rapid duplicate triggers)
-    const cooldown = getBroadcastCooldownRemaining(guildId, 25);
+    const cooldown = getBroadcastCooldownRemaining(guildId, 30);
     if (cooldown > 0) {
       await interaction.reply({
         content:
           `⏳ **Announcement cooldown active.**\n` +
-          `An announcement was recently sent. Please wait **${cooldown}s** before broadcasting another one.`,
+          `An announcement was recently sent. Please wait **${cooldown}s** before broadcasting another one to prevent spamming members.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -172,8 +168,8 @@ const command: Command = {
       ping === "everyone" ? "🔔 **Ping:** `@everyone`" : ping === "here" ? "🔔 **Ping:** `@here`" : pingRole ? `🔔 **Ping:** <@&${pingRole.id}>` : "🔔 **Ping:** None",
       sendDms
         ? dmRole
-          ? `📨 **DM Broadcast:** Members with role <@&${dmRole.id}>`
-          : "📨 **DM Broadcast:** **Every server member**"
+          ? `📨 **DM Broadcast:** Members with role <@&${dmRole.id}> (Sent 1 time per member)`
+          : "📨 **DM Broadcast:** **Every server member** (Sent 1 time per member)"
         : "📨 **DM Broadcast:** **Disabled** (Channel only)",
       alert ? `💬 **DM Alert text:** ${alert}` : null,
     ]
@@ -193,78 +189,7 @@ const command: Command = {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // INTERACTIVE CONFIRMATION (Prevents accidental duplicate sends)
-    // ─────────────────────────────────────────────────────────────
-    const confirmId = `annc_post_${interaction.id}`;
-    const cancelId = `annc_cancel_${interaction.id}`;
-
-    const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(confirmId)
-        .setLabel("Post Announcement")
-        .setEmoji("📢")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(cancelId)
-        .setLabel("Cancel")
-        .setEmoji("✖️")
-        .setStyle(ButtonStyle.Danger)
-    );
-
-    const promptMessage = await interaction.editReply({
-      content:
-        `📢 **Announcement Confirmation & Preview**\n` +
-        `Please review the settings and preview below. Click **Post Announcement** to publish, or **Cancel** to abort.\n\n` +
-        `${summaryText}\n\n` +
-        `_Channel Embed Preview (first) & Member DM Preview (second):_`,
-      embeds: [channelEmbed, dmEmbedPreview],
-      components: [actionRow],
-    });
-
-    let confirmation;
-    try {
-      confirmation = await promptMessage.awaitMessageComponent({
-        componentType: ComponentType.Button,
-        filter: (btn) => btn.user.id === interaction.user.id && (btn.customId === confirmId || btn.customId === cancelId),
-        time: 60_000,
-      });
-    } catch {
-      // Timed out after 60s
-      await interaction.editReply({
-        content: "⌛ **Announcement timed out.** No action was taken and nothing was posted.",
-        embeds: [],
-        components: [],
-      }).catch(() => {});
-      return;
-    }
-
-    if (confirmation.customId === cancelId) {
-      await confirmation.update({
-        content: "❌ **Announcement cancelled.** Nothing was posted to the server or DMs.",
-        embeds: [],
-        components: [],
-      });
-      return;
-    }
-
-    // Re-verify broadcast lock at moment of button click
-    if (isBroadcastActive(guildId)) {
-      await confirmation.update({
-        content: "⚠️ **Another broadcast started while reviewing!** Announcement aborted to avoid duplication.",
-        embeds: [],
-        components: [],
-      });
-      return;
-    }
-
-    await confirmation.update({
-      content: "📨 **Publishing announcement to channel…**",
-      embeds: [],
-      components: [],
-    });
-
-    // ─────────────────────────────────────────────────────────────
-    // POST TO CHANNEL
+    // DIRECT PUBLISH (Immediate & deduplicated)
     // ─────────────────────────────────────────────────────────────
     const announcement = await target.send({
       content: buildPingContent({ ping, pingRoleId: pingRole?.id ?? null }) || undefined,
@@ -286,7 +211,6 @@ const command: Command = {
 
     if (!sendDms) {
       await interaction.editReply({
-        content: null,
         embeds: [
           vyntricEmbed("success")
             .setTitle("✅ Announcement posted")
@@ -299,7 +223,6 @@ const command: Command = {
     }
 
     await interaction.editReply({
-      content: null,
       embeds: [
         vyntricEmbed("accent")
           .setTitle("📨 Sending DM alerts…")
@@ -308,7 +231,7 @@ const command: Command = {
               startMessage,
               "",
               dmRole ? `**Audience:** members with <@&${dmRole.id}>` : "**Audience:** every member in the server",
-              "-# Sending in small batches to stay inside Discord's limits.",
+              "-# Each member receives exactly 1 DM notice (protected against duplicates).",
             ].join("\n")
           ),
       ],

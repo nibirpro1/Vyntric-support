@@ -2,6 +2,7 @@ import {
   ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
   TextChannel,
@@ -187,6 +188,15 @@ const command: Command = {
     if (!interaction.guild) return;
 
     const sub = interaction.options.getSubcommand();
+    const isEphemeral =
+      sub === "test" ||
+      sub === "strikes" ||
+      (sub === "words" && interaction.options.getString("action") === "list") ||
+      (sub === "exempt" && interaction.options.getString("action") === "list");
+
+    // Defer immediately within milliseconds so Discord never shows "The application did not respond"
+    await interaction.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
+
     const guildId = interaction.guild.id;
     const config = getAutoModConfig(guildId);
 
@@ -236,7 +246,7 @@ const command: Command = {
           )
           .setFooter({ text: "Use /automod test, /automod toggle, or /automod exempt" });
 
-        await interaction.reply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed] });
         break;
       }
 
@@ -246,7 +256,7 @@ const command: Command = {
 
         updateAutoModConfig(guildId, { [feature]: enabled });
 
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setColor(enabled ? BRAND.colors.success : BRAND.colors.warning)
@@ -291,14 +301,13 @@ const command: Command = {
                     : "None",
               }
             );
-          await interaction.reply({ embeds: [embed], ephemeral: true });
+          await interaction.editReply({ embeds: [embed] });
           return;
         }
 
         if (!chan && !role && !user) {
-          await interaction.reply({
+          await interaction.editReply({
             content: "⚠️ Please provide at least one `channel`, `role`, or `user` option.",
-            ephemeral: true,
           });
           return;
         }
@@ -330,7 +339,7 @@ const command: Command = {
           exemptUsers: Array.from(nextUsers),
         });
 
-        await interaction.reply({
+        await interaction.editReply({
           content: `✅ ${action === "add" ? "Added to" : "Removed from"} AutoMod exemptions: ${updatedNotes.join(", ")}`,
         });
         break;
@@ -342,13 +351,12 @@ const command: Command = {
 
         if (action === "check") {
           const strikes = getUserAutoModStrikes(guildId, user.id);
-          await interaction.reply({
+          await interaction.editReply({
             content: `📊 **${user.tag}** currently has **${strikes}** active AutoMod strike(s) in the last 1 hour.`,
-            ephemeral: true,
           });
         } else {
           resetUserAutoModStrikes(guildId, user.id);
-          await interaction.reply({
+          await interaction.editReply({
             content: `✅ Reset all active 1-hour AutoMod strikes for **${user.tag}**.`,
           });
         }
@@ -375,7 +383,7 @@ const command: Command = {
               ? config.allowWords.map((w) => `\`${w}\``).join(", ")
               : "None";
 
-          await interaction.reply({
+          await interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setColor(BRAND.colors.primary)
@@ -386,14 +394,13 @@ const command: Command = {
                   value: allowText.slice(0, 1000),
                 }),
             ],
-            ephemeral: true,
           });
           return;
         }
 
         if (action === "clear") {
           updateAutoModConfig(guildId, { badWords: [] });
-          await interaction.reply({
+          await interaction.editReply({
             content:
               "🗑️ Cleared all custom blacklisted words. *(Note: The built-in Bengali & English Gali Shield remains active unless toggled off.)*",
           });
@@ -401,9 +408,8 @@ const command: Command = {
         }
 
         if (!word) {
-          await interaction.reply({
+          await interaction.editReply({
             content: "⚠️ You must specify a word.",
-            ephemeral: true,
           });
           return;
         }
@@ -430,19 +436,18 @@ const command: Command = {
               badWords: Array.from(currentWords),
               allowWords: nextAllow,
             });
-            await interaction.reply({
+            await interaction.editReply({
               content: `✅ Added **${newlyAdded.length}** word(s) to AutoMod blacklist: \`${newlyAdded.join(", ")}\``,
             });
           } else {
-            await interaction.reply({
+            await interaction.editReply({
               content: `ℹ️ Specified word(s) are already in the AutoMod blacklist.`,
-              ephemeral: true,
             });
           }
         } else if (action === "remove") {
           const next = config.badWords.filter((w) => !parsedWords.includes(w));
           updateAutoModConfig(guildId, { badWords: next });
-          await interaction.reply({
+          await interaction.editReply({
             content: `🗑️ Removed specified word(s) from your custom blacklist. *(To unblock a built-in word, use \`Allow/Whitelist Word\`.)*`,
           });
         } else if (action === "allow") {
@@ -452,13 +457,13 @@ const command: Command = {
             allowWords: nextAllow,
             badWords: nextBad,
           });
-          await interaction.reply({
+          await interaction.editReply({
             content: `✅ Added \`${parsedWords.join(", ")}\` to the **Allowlist** — AutoMod will no longer block them.`,
           });
         } else if (action === "unallow") {
           const nextAllow = config.allowWords.filter((w) => !parsedWords.includes(w));
           updateAutoModConfig(guildId, { allowWords: nextAllow });
-          await interaction.reply({
+          await interaction.editReply({
             content: `🗑️ Removed \`${parsedWords.join(", ")}\` from the Allowlist.`,
           });
         }
@@ -468,7 +473,7 @@ const command: Command = {
       case "logchannel": {
         const channel = interaction.options.getChannel("channel", true) as TextChannel;
         updateAutoModConfig(guildId, { logChannelId: channel.id });
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setColor(BRAND.colors.success)
@@ -481,7 +486,7 @@ const command: Command = {
       case "punishment": {
         const action = interaction.options.getString("action", true) as AutoModPunishment;
         updateAutoModConfig(guildId, { punishment: action });
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setColor(BRAND.colors.primary)
@@ -496,7 +501,7 @@ const command: Command = {
       case "immunity": {
         const enabled = interaction.options.getBoolean("enabled", true);
         updateAutoModConfig(guildId, { adminImmunity: enabled });
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setColor(enabled ? BRAND.colors.warning : BRAND.colors.success)
@@ -540,7 +545,7 @@ const command: Command = {
             }
           );
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        await interaction.editReply({ embeds: [embed] });
         break;
       }
     }

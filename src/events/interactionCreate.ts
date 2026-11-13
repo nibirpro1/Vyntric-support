@@ -50,6 +50,8 @@ export default {
 
       // ─────────────────────────────────────────────────────────────
       // COMMAND LOGGING (Dyno-style command audit log)
+      // Dispatched asynchronously in background — NEVER await here so
+      // interaction reply is never delayed past Discord's 3-second window.
       // ─────────────────────────────────────────────────────────────
       if (interaction.guild) {
         const optionsParts: string[] = [];
@@ -65,13 +67,13 @@ export default {
         }
         const optStr = optionsParts.length > 0 ? ` ${optionsParts.join(" ")}` : "";
 
-        await logCommandExecution({
+        void logCommandExecution({
           guild: interaction.guild,
           user: interaction.user,
           channelId: interaction.channelId,
           commandName: interaction.commandName,
           fullCommand: `/${interaction.commandName}${optStr}`,
-        });
+        }).catch((err) => console.error("[logCommandExecution:error]", err));
       }
 
       try {

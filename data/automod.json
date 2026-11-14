@@ -13,6 +13,7 @@
     "antiZalgo": true,
     "antiBadWords": true,
     "antiLouding": false,
+    "linkPermRoleId": "1571254489610977400",
     "escalatePunishment": true,
     "dmOnPunish": true,
     "badWords": [

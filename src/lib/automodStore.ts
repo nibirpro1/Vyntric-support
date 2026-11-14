@@ -31,6 +31,7 @@ export interface AutoModConfig {
   exemptUsers: string[];
   exemptRoles: string[];
   exemptChannels: string[];
+  linkPermRoleId?: string | null;
   punishment: AutoModPunishment;
   logChannelId: string | null;
   updatedAt: number;
@@ -139,8 +140,18 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
   if (!Array.isArray(cfg.exemptUsers)) cfg.exemptUsers = [];
   if (!Array.isArray(cfg.exemptRoles)) cfg.exemptRoles = [];
   if (!Array.isArray(cfg.exemptChannels)) cfg.exemptChannels = [];
+  if (cfg.linkPermRoleId === undefined) {
+    cfg.linkPermRoleId = guildId === "1507706011622965258" ? "1571254489610977400" : null;
+  }
 
   return cfg;
+}
+
+export function setLinkPermRoleId(guildId: string, roleId: string | null): void {
+  const cfg = getAutoModConfig(guildId);
+  cfg.linkPermRoleId = roleId;
+  cfg.updatedAt = Date.now();
+  persist();
 }
 
 export function updateAutoModConfig(

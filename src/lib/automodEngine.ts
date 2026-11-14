@@ -791,7 +791,8 @@ export interface AutoModEvaluation {
  */
 export function evaluateContentForAutoMod(
   content: string,
-  config: AutoModConfig
+  config: AutoModConfig,
+  hasLinkPerms: boolean = false
 ): AutoModEvaluation {
   const reasons: string[] = [];
   const matchedWords: string[] = [];
@@ -838,9 +839,10 @@ export function evaluateContentForAutoMod(
     }
   }
 
-  // 2. Anti-Invite Check
+  // 2. Anti-Invite Check (bypassed if user has Link Perms)
   if (
     config.antiInvite &&
+    !hasLinkPerms &&
     /(discord\.(gg|io|me|li)|discordapp\.com\/invite|discord\.com\/invite|dsc\.gg)\/[a-z0-9_-]+/i.test(
       decodeFancyAndHomoglyphs(content)
     )
@@ -849,8 +851,8 @@ export function evaluateContentForAutoMod(
     severity = "high";
   }
 
-  // 3. Anti-Link Check (allowing safe Discord CDN & Tenor/Giphy GIFs)
-  if (config.antiLink) {
+  // 3. Anti-Link Check (allowing safe Discord CDN & Tenor/Giphy GIFs, and users with Link Perms)
+  if (config.antiLink && !hasLinkPerms) {
     const urls = content.match(/https?:\/\/[^\s<>]+/gi) || [];
     const hasBlockedLink = urls.some((rawUrl) => {
       try {
@@ -1220,9 +1222,21 @@ export async function executeAutoModCheck(
   let violationReason = "";
   let severity: "high" | "soft" = "high";
 
+  // Link Permissions evaluation:
+  const hasLinkPerms = Boolean(
+    member &&
+    (
+      (autoMod.linkPermRoleId && member.roles.cache.has(autoMod.linkPermRoleId)) ||
+      member.roles.cache.some((r) => {
+        const n = r.name.toLowerCase();
+        return n.includes("link perm") || n.includes("link access");
+      })
+    )
+  );
+
   // A. Content Rules (Phishing, Invite, Link, Gali, Zalgo, Emoji, Caps)
   const content = message.content || "";
-  const contentEval = evaluateContentForAutoMod(content, autoMod);
+  const contentEval = evaluateContentForAutoMod(content, autoMod, hasLinkPerms);
   if (contentEval.triggered) {
     violated = true;
     violationReason = contentEval.reasons[0];

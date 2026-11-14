@@ -1314,15 +1314,20 @@ export async function executeAutoModCheck(
       violationReason = `[VC] ${violationReason}`;
     }
 
+    // If the offender is currently inside ANY Voice Channel (public or private), immediately disconnect them
+    if (member?.voice?.channel) {
+      try {
+        await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`);
+        actionNote += " + Kicked from Voice Channel";
+      } catch (vcErr) {
+        console.error("[automod:vc:disconnect:error]", vcErr);
+      }
+    }
+
     if (targetDurationMs && member) {
       if (member.moderatable) {
         try {
           await member.timeout(targetDurationMs, `AutoMod (Strike #${strikeCount}): ${violationReason}`);
-          // If the offender is currently inside ANY Voice Channel (public or private), immediately disconnect them
-          if (member.voice?.channel) {
-            await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`).catch(() => {});
-            actionNote += " + Kicked from Voice Channel";
-          }
         } catch (err) {
           console.error("[automod:timeout:error]", err);
           actionNote = "Message deleted (Timeout failed - permissions)";

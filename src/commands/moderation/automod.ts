@@ -246,7 +246,7 @@ const command: Command = {
             { name: "😀 Anti-Emoji", value: badge(config.antiEmoji), inline: true },
             { name: "👾 Anti-Zalgo/Lines", value: badge(config.antiZalgo), inline: true },
             { name: "🔊 Anti-Louding", value: config.antiLouding ? "✅ Active (10m Timeout)" : "❌ Off (Default)", inline: true },
-            { name: "🎙️ Public VC Shield", value: "✅ Active (Private VCs Ignored)", inline: true },
+            { name: "🎙️ All VC Gali Shield", value: "✅ Active across All VCs (5m Timeout + VC Kick)", inline: true },
             { name: "📈 Auto-Escalation", value: badge(config.escalatePunishment), inline: true },
             { name: "🛡️ Staff Immunity", value: config.adminImmunity ? "✅ Bypass On" : "⚠️ Off (All Filtered)", inline: true },
             { name: "🔨 Base Punishment", value: `\`${formatPunishmentLabel(config.punishment)}\``, inline: true },

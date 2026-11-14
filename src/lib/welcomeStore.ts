@@ -23,16 +23,15 @@ export interface WelcomeConfig {
   chatWelcomeBannerUrl?: string | null;
 }
 
-export const DEFAULT_CHAT_PING = "👑 Welcome to Vyntric, {user}!";
-export const DEFAULT_CHAT_TITLE = "⚡ Welcome to Vyntric Network!";
+export const DEFAULT_OFFICIAL_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-welcome.gif");
+export const DEFAULT_CHAT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-chat-welcome.gif");
+
+export const DEFAULT_CHAT_PING = "👋 Welcome to the chat, {user}!";
+export const DEFAULT_CHAT_TITLE = "⚡ Welcome to Vyntric!";
 export const DEFAULT_CHAT_DESCRIPTION =
   "Hey {user}, welcome aboard! 🚀\n" +
-  "You've stepped into **Vyntric** — home of competitive UHC tournaments, active SMP, and gaming hangouts!\n\n" +
-  "🌟 **Quick-Start Guide:**\n" +
-  "✦ 📜 Check <#1554018991759032320> to stay safe & know the guidelines\n" +
-  "✦ 🎭 Pick your game & notify roles in <#1551792726243287130>\n" +
-  "✦ 💬 Squad up and talk with everyone right here in <#1560688449353420930>\n" +
-  "✦ 🎁 Don't miss live giveaways & events in <#1552331192546623598>";
+  "Have fun, chat with everyone & vibe with us in **Vyntric**! 🔥\n\n" +
+  "» Read rules in <#1554018991759032320> • Grab roles in <#1551792726243287130> ⚡";
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
@@ -97,9 +96,17 @@ export function getWelcomeConfig(guildId: string): WelcomeConfig {
     const cfg = store[guildId];
     if (cfg.chatWelcomeEnabled === undefined) cfg.chatWelcomeEnabled = true;
     if (!cfg.chatWelcomeChannelId) cfg.chatWelcomeChannelId = "1560688449353420930";
-    if (!cfg.chatWelcomePing || cfg.chatWelcomePing.includes("💜 Yoo")) cfg.chatWelcomePing = DEFAULT_CHAT_PING;
-    if (!cfg.chatWelcomeTitle) cfg.chatWelcomeTitle = DEFAULT_CHAT_TITLE;
-    if (!cfg.chatWelcomeDescription || cfg.chatWelcomeDescription.includes("Enjoy fun moments")) {
+    if (!cfg.chatWelcomePing || cfg.chatWelcomePing.includes("💜 Yoo") || cfg.chatWelcomePing.includes("👑 Welcome")) {
+      cfg.chatWelcomePing = DEFAULT_CHAT_PING;
+    }
+    if (!cfg.chatWelcomeTitle || cfg.chatWelcomeTitle.includes("Network!")) {
+      cfg.chatWelcomeTitle = DEFAULT_CHAT_TITLE;
+    }
+    if (
+      !cfg.chatWelcomeDescription ||
+      cfg.chatWelcomeDescription.includes("Enjoy fun moments") ||
+      cfg.chatWelcomeDescription.includes("Quick-Start Guide")
+    ) {
       cfg.chatWelcomeDescription = DEFAULT_CHAT_DESCRIPTION;
     }
   }

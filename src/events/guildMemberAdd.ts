@@ -14,6 +14,7 @@ import { getAntiNukeConfig } from "../lib/antinukeStore";
 import { isImmune, executePunishment, sendAntiNukeAlert } from "../lib/antinukeManager";
 
 const DEFAULT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-welcome.gif");
+const DEFAULT_CHAT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-chat-welcome.gif");
 
 export default {
   name: Events.GuildMemberAdd,
@@ -167,6 +168,10 @@ export default {
           const chatFiles: AttachmentBuilder[] = [];
           if (config.chatWelcomeBannerUrl && config.chatWelcomeBannerUrl.trim().length > 0) {
             chatEmbed.setImage(config.chatWelcomeBannerUrl.trim());
+          } else if (fs.existsSync(DEFAULT_CHAT_BANNER_PATH)) {
+            const chatBannerAttachment = new AttachmentBuilder(DEFAULT_CHAT_BANNER_PATH, { name: "vyntric-chat-welcome.gif" });
+            chatEmbed.setImage("attachment://vyntric-chat-welcome.gif");
+            chatFiles.push(chatBannerAttachment);
           } else if (config.bannerUrl && config.bannerUrl.trim().length > 0) {
             chatEmbed.setImage(config.bannerUrl.trim());
           } else if (fs.existsSync(DEFAULT_BANNER_PATH)) {

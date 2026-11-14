@@ -238,8 +238,10 @@ export const BUILTIN_BANGLISH_HINDI_GALI = [
   "randir",
   "randirpola",
   "randir pola",
+  "randir baccha",
   "bhatar",
   "bhatari",
+  "vatari",
   "bhoda",
   "voda",
   "bhodai",
@@ -249,13 +251,28 @@ export const BUILTIN_BANGLISH_HINDI_GALI = [
   "pod",
   "podmarani",
   "gudmarani",
+  "guder",
   "notti",
   "notir pola",
   "hijra",
   "heda",
   "hedar",
+  "hedachata",
+  "hedamara",
+  "hedamo",
   "fokirni",
   "fokinnir pola",
+  "bsdk",
+  "bkl",
+  "gaandmara",
+  "gandmora",
+  "gaandmora",
+  "gandfat",
+  "gand phat",
+  "earrape",
+  "ear rape",
+  "mic spam",
+  "loud mic",
 ];
 
 export const BUILTIN_ENGLISH_GALI = [
@@ -343,25 +360,57 @@ const UNSPACED_COMPOUND_SLURS = [
   "bokachoda",
   "bokachuda",
   "bokacoda",
+  "bokasoda",
+  "bocachoda",
+  "bokacuda",
+  "b0kach0da",
   "madarchod",
   "madarchud",
   "maderchod",
   "madarcod",
+  "madorchod",
+  "maderchud",
   "bhenchod",
   "behenchod",
+  "banchod",
+  "bhanchod",
+  "bhenchodd",
+  "banchodd",
   "motherfucker",
   "khankirpola",
   "khankimagi",
+  "khankirchele",
+  "khankirbaccha",
+  "khankir",
+  "khanki",
   "magirpola",
+  "magirchele",
+  "magirbaccha",
+  "magirjhi",
   "randirpola",
+  "randirbaccha",
   "chudmarani",
   "podmarani",
   "gudmarani",
   "chudanirpola",
+  "chudirbhai",
+  "chudachudi",
+  "chodachodi",
   "bhosdike",
   "bhosdiwale",
+  "gandmara",
+  "gaandmara",
+  "gandmora",
+  "gaandmora",
+  "gandfat",
+  "gandphat",
+  "hedachata",
+  "hedamara",
   "shuorerbachcha",
+  "suarerbachcha",
   "kuttarbachcha",
+  "haramirpola",
+  "haramirbaccha",
   "cocksucker",
   "asshole",
   "faggot",
@@ -430,6 +479,12 @@ const SAFE_WORDS = new Set([
   "shift",
   "shirts",
   "shirt",
+  "balish",
+  "balti",
+  "balak",
+  "balika",
+  "bangla",
+  "bangladesh",
   "বালিশ",
   "বালতি",
   "বালক",
@@ -614,8 +669,14 @@ export function normalizeAutoModText(raw: string): string {
   // Remove inline emoji symbols used to split bad words
   text = text.replace(/\p{Extended_Pictographic}/gu, "");
 
+  // Replace underscores and symbols that prevent word boundaries
+  text = text.replace(/[_~*]/g, " ");
+
   // Merge separated single letters: e.g. "f u c k" or "m.a.g.i" or "b-o-k-a"
-  text = text.replace(/(?<=\b[a-z])[\s._\-*~+/]+(?=[a-z]\b)/g, "");
+  text = text.replace(/(?<=\b[a-z])[\s._\-*~+/\\|,;:'"!()?[\]{}]+(?=[a-z]\b)/gi, "");
+
+  // Merge spaced Bengali characters: e.g. "ব ো ক া" or "ম া গ ি"
+  text = text.replace(/(?<=[\u0980-\u09FF])\s+(?=[\u0980-\u09FF])/gu, "");
 
   // Collapse 3+ repeated characters down to 1
   text = text.replace(/(.)\1{2,}/g, "$1");
@@ -830,8 +891,21 @@ export function evaluateContentForAutoMod(
     const nonSafeTokens = rawTokens.filter((t) => !SAFE_WORDS.has(t));
     const safeCheckText = nonSafeTokens.join(" ");
 
-    // Also compact all letters for unspaced compound detection (e.g. "tuibokachoda")
+    // Multi-pass de-spacing and normalization for evasion resistance:
     const compactedAscii = normalized.replace(/[^a-z0-9]/g, "");
+    const collapsedAscii = compactedAscii.replace(/(.)\1+/g, "$1");
+
+    const compactedBengali = rawClean.replace(/[^a-z0-9\u0980-\u09FF]/g, "");
+    const collapsedBengali = compactedBengali.replace(/(.)\1+/g, "$1");
+
+    const isSafeContext = (slur: string): boolean => {
+      for (const s of SAFE_WORDS) {
+        if (s.includes(slur) && (rawClean.includes(s) || normalized.includes(s))) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     for (const rawWord of combinedWords) {
       const word = rawWord.trim().toLowerCase().normalize("NFC");
@@ -854,7 +928,9 @@ export function evaluateContentForAutoMod(
           matched =
             safeCheckText.includes(word) ||
             rawClean.includes(word) ||
-            bnSpaced.includes(word);
+            bnSpaced.includes(word) ||
+            compactedBengali.includes(word) ||
+            collapsedBengali.includes(word);
         }
       } else if (word.includes(" ")) {
         const escaped = escapeRegex(word).replace(/\s+/g, "\\s+");
@@ -885,28 +961,42 @@ export function evaluateContentForAutoMod(
         matched = rawClean.includes(word) || normalized.includes(word);
       }
 
-      if (matched) {
+      if (matched && !isSafeContext(word)) {
         matchedWords.push(word);
         break;
       }
     }
 
-    // Check unspaced compound slurs (e.g. "hahabokachodabro") if not already matched
+    // Check unspaced compound slurs (e.g. "hahabokachodabro", "b.o.k.a.c.h.o.d.a")
     if (matchedWords.length === 0) {
       for (const slur of UNSPACED_COMPOUND_SLURS) {
         if (allowSet.has(slur)) continue;
-        if (compactedAscii.includes(slur)) {
-          matchedWords.push(slur);
-          break;
+        if (
+          compactedAscii.includes(slur) ||
+          collapsedAscii.includes(slur) ||
+          compactedBengali.includes(slur) ||
+          collapsedBengali.includes(slur)
+        ) {
+          if (!isSafeContext(slur)) {
+            matchedWords.push(slur);
+            break;
+          }
         }
       }
       if (matchedWords.length === 0) {
         for (const rawWord of combinedWords) {
           const w = rawWord.trim().toLowerCase();
-          if (w.length >= 4 && !allowSet.has(w) && !SAFE_WORDS.has(w)) {
-            if (compactedAscii.includes(w)) {
-              matchedWords.push(w);
-              break;
+          if (w.length >= 3 && !allowSet.has(w) && !SAFE_WORDS.has(w)) {
+            if (
+              compactedAscii.includes(w) ||
+              collapsedAscii.includes(w) ||
+              compactedBengali.includes(w) ||
+              collapsedBengali.includes(w)
+            ) {
+              if (!isSafeContext(w)) {
+                matchedWords.push(w);
+                break;
+              }
             }
           }
         }
@@ -1090,13 +1180,12 @@ export async function executeAutoModCheck(
   ]);
   if (systemExemptChannels.has(message.channelId)) return false;
 
-  // If the message was sent in a Voice Channel text chat:
-  // If it is a private VC, IGNORE IT per user instruction ("private vc ignore")
-  if (message.channel && typeof (message.channel as any).isVoiceBased === "function" && (message.channel as any).isVoiceBased()) {
-    if (isPrivateVoiceChannel(message.channel)) {
-      return false; // Silently ignore private VCs
-    }
-  }
+  // Voice Channel Check: Both public and private Voice Channels are strictly moderated ("kono vc tei parbena gali dite")
+  const isVoiceChannel = Boolean(
+    message.channel &&
+    typeof (message.channel as any).isVoiceBased === "function" &&
+    (message.channel as any).isVoiceBased()
+  );
 
   // Fetch member if not cached
   let member: GuildMember | null = message.member ?? null;
@@ -1220,15 +1309,19 @@ export async function executeAutoModCheck(
       actionNote = "Timeout (10 Minutes) [Anti-Louding]";
     }
 
+    // If infraction occurred inside a Voice Channel text chat, annotate reason
+    if (isVoiceChannel) {
+      violationReason = `[VC] ${violationReason}`;
+    }
+
     if (targetDurationMs && member) {
       if (member.moderatable) {
         try {
           await member.timeout(targetDurationMs, `AutoMod (Strike #${strikeCount}): ${violationReason}`);
-          // If the offender is currently inside a PUBLIC Voice Channel, immediately disconnect them from VC
-          // (Private VCs are ignored per owner specification)
-          if (member.voice?.channel && !isPrivateVoiceChannel(member.voice.channel)) {
+          // If the offender is currently inside ANY Voice Channel (public or private), immediately disconnect them
+          if (member.voice?.channel) {
             await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`).catch(() => {});
-            actionNote += " + Kicked from Public VC";
+            actionNote += " + Kicked from Voice Channel";
           }
         } catch (err) {
           console.error("[automod:timeout:error]", err);

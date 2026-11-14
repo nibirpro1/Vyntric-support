@@ -46,14 +46,20 @@ export default {
             console.log(`[ready:nickname] Set server nickname to 'Vyntric' in ${guild.name}`);
           }
 
-          // Check if there is a hoisted bot role (e.g. "BOTS", "Bots", "🤖 Bot", etc.)
+          // Check if there is a bot role (e.g. "Bot", "Bots", "BOTS", etc.)
           const botRole = guild.roles.cache.find(r =>
-            (r.name.toLowerCase().includes("bot") || r.name.toLowerCase() === "apps" || r.name.toLowerCase() === "app") &&
+            (r.name.toLowerCase() === "bot" || r.name.toLowerCase() === "bots" || r.name.toLowerCase().includes("bot")) &&
             !r.managed
           );
-          if (botRole && !me.roles.cache.has(botRole.id) && botRole.editable) {
-            await me.roles.add(botRole, "Ensure bot appears in member list").catch(() => {});
-            console.log(`[ready:roles] Added role '${botRole.name}' to Vyntric bot.`);
+          if (botRole) {
+            if (!me.roles.cache.has(botRole.id) && botRole.editable) {
+              await me.roles.add(botRole, "Ensure bot has Bot role").catch(() => {});
+              console.log(`[ready:roles] Added role '${botRole.name}' to Vyntric bot.`);
+            }
+            if (!botRole.hoist && botRole.editable) {
+              await botRole.setHoist(true, "Display Bot separately in member sidebar").catch(() => {});
+              console.log(`[ready:roles] Hoisted '${botRole.name}' role so it displays in member sidebar.`);
+            }
           }
         }
       } catch (err: any) {

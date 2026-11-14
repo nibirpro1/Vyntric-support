@@ -1,6 +1,6 @@
 import "dotenv/config";
 import net from "net";
-import { GatewayIntentBits, Partials } from "discord.js";
+import { ActivityType, GatewayIntentBits, Partials } from "discord.js";
 import { VyntricClient } from "./structures/VyntricClient";
 import { loadCommands } from "./handlers/loadCommands";
 import { loadEvents } from "./handlers/loadEvents";
@@ -21,6 +21,10 @@ lockServer.once("error", (err: any) => {
 lockServer.listen(LOCK_PORT, "127.0.0.1");
 
 const client = new VyntricClient({
+  presence: {
+    status: "online",
+    activities: [{ name: "🛡️ Vyntric • /help", type: ActivityType.Watching }],
+  },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,

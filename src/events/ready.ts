@@ -35,13 +35,26 @@ export default {
       });
     }
 
-    // 3. Update Guild Nickname to "Vyntric" in all guilds
+    // 3. Update Guild Nickname and check Bot roles
     for (const guild of client.guilds.cache.values()) {
       try {
         const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
-        if (me && me.nickname !== "Vyntric") {
-          await me.setNickname("Vyntric");
-          console.log(`[ready:nickname] Set server nickname to 'Vyntric' in ${guild.name}`);
+        if (me) {
+          console.log(`[ready] Bot ${client.user?.tag} in ${guild.name} (ID: ${guild.id}) - Nickname: '${me.nickname}', Roles: [${me.roles.cache.map(r => r.name).join(", ")}]`);
+          if (me.nickname !== "Vyntric" && me.manageable) {
+            await me.setNickname("Vyntric");
+            console.log(`[ready:nickname] Set server nickname to 'Vyntric' in ${guild.name}`);
+          }
+
+          // Check if there is a hoisted bot role (e.g. "BOTS", "Bots", "🤖 Bot", etc.)
+          const botRole = guild.roles.cache.find(r =>
+            (r.name.toLowerCase().includes("bot") || r.name.toLowerCase() === "apps" || r.name.toLowerCase() === "app") &&
+            !r.managed
+          );
+          if (botRole && !me.roles.cache.has(botRole.id) && botRole.editable) {
+            await me.roles.add(botRole, "Ensure bot appears in member list").catch(() => {});
+            console.log(`[ready:roles] Added role '${botRole.name}' to Vyntric bot.`);
+          }
         }
       } catch (err: any) {
         console.warn(`[ready:nickname] Could not set nickname in ${guild.name}:`, err.message);
@@ -53,7 +66,7 @@ export default {
 
     client.user?.setPresence({
       status: "online",
-      activities: [{ name: "🛡️ Vyntric • All VCs Protected", type: ActivityType.Custom }],
+      activities: [{ name: "🛡️ /help • Vyntric Security", type: ActivityType.Watching }],
     });
 
     // Initialize active giveaways and resume timers

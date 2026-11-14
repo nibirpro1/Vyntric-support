@@ -4,6 +4,8 @@ import { BRAND } from "../lib/brand";
 
 // Track rapid mute/unmute/deafen state changes: guildId:userId -> timestamps[]
 const voiceSpamMap = new Map<string, number[]>();
+// Track rapid VC channel switches: guildId:userId -> timestamps[]
+const voiceHopMap = new Map<string, number[]>();
 
 export default {
   name: Events.VoiceStateUpdate,
@@ -88,6 +90,61 @@ export default {
           } catch (err) {
             console.error("[automod:vc:antiLouding:error]", err);
           }
+        }
+      }
+    }
+
+    // 3. Anti-VC Hopping / Raid Protection (Trolls jumping across 5+ VCs within 5s to disrupt chats)
+    if (autoMod.enabled && oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+      const hopKey = `hop:${guild.id}:${member.id}`;
+      const now = Date.now();
+      const hopTimes = (voiceHopMap.get(hopKey) || []).filter((t) => now - t < 5000);
+      hopTimes.push(now);
+      voiceHopMap.set(hopKey, hopTimes);
+
+      if (hopTimes.length >= 5) {
+        voiceHopMap.delete(hopKey);
+        try {
+          if (member.voice.channel) {
+            await member.voice.disconnect("AutoMod: Excessive Voice Channel Hopping").catch(() => {});
+          }
+
+          if (member.moderatable) {
+            await member.timeout(5 * 60 * 1000, "AutoMod: Excessive Voice Channel Hopping / Sound Spam");
+          }
+
+          if (autoMod.dmOnPunish) {
+            const dmEmbed = new EmbedBuilder()
+              .setColor(BRAND.colors.warning)
+              .setTitle("⚠️ Disconnected for Voice Channel Hopping")
+              .setDescription(
+                `You were disconnected and timed out for **5 minutes** in **${guild.name}** for rapidly hopping between voice channels.`
+              )
+              .setFooter({ text: `${BRAND.name} Voice Security` })
+              .setTimestamp();
+
+            await member.send({ embeds: [dmEmbed] }).catch(() => {});
+          }
+
+          if (autoMod.logChannelId) {
+            const logChannel = guild.channels.cache.get(autoMod.logChannelId);
+            if (logChannel && logChannel.isTextBased()) {
+              const logEmbed = new EmbedBuilder()
+                .setColor(BRAND.colors.warning)
+                .setTitle("🛡️ AutoMod: Voice Channel Hopping Spam")
+                .setDescription(`**${member.user.tag}** was detected rapidly hopping between voice channels.`)
+                .addFields(
+                  { name: "Offender", value: `${member.user} (\`${member.id}\`)`, inline: true },
+                  { name: "Action Taken", value: "`Disconnected from VC` + `5m Timeout`", inline: true }
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+
+              await (logChannel as TextChannel).send({ embeds: [logEmbed] }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error("[automod:vc:hop:error]", err);
         }
       }
     }

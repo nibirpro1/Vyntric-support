@@ -9,6 +9,7 @@ import { BRAND } from "../lib/brand";
 import { toggleRsvpMeeting } from "../lib/store";
 import { handleGiveawayButton } from "../lib/giveawayManager";
 import { logCommandExecution } from "../lib/loggingStore";
+import { handleVoiceReportButton } from "../interactions/voiceReportInteractions";
 
 async function safeError(interaction: Interaction) {
   if (!interaction.isRepliable()) return;
@@ -86,6 +87,11 @@ export default {
     }
 
     try {
+      if (interaction.isButton() && interaction.customId.startsWith("vcrep:")) {
+        await handleVoiceReportButton(interaction);
+        return;
+      }
+
       if (
         interaction.isButton() &&
         (interaction.customId.startsWith("gw_enter:") || interaction.customId.startsWith("gw_entries:"))

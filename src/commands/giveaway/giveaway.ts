@@ -199,7 +199,10 @@ const command: Command = {
       member.permissions.has(PermissionFlagsBits.ManageGuild);
 
     const hasManagerRole = settings.managerRoleIds.some((rId) => member.roles.cache.has(rId));
-    const canManageGiveaways = isServerAdmin || hasManagerRole;
+    const hasGiveawayPermRole =
+      member.roles.cache.has("1571258781487210660") ||
+      member.roles.cache.some((r) => r.name.toLowerCase().includes("giveaway perm"));
+    const canManageGiveaways = isServerAdmin || hasManagerRole || hasGiveawayPermRole;
 
     // ─────────────────────────────────────────────────────────────
     // PERMISSION CHECK

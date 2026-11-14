@@ -154,6 +154,22 @@ const command: Command = {
 
     const guildId = interaction.guild.id;
 
+    const member = interaction.member as any;
+    const isAllowed =
+      interaction.guild.ownerId === interaction.user.id ||
+      member?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
+      member?.permissions?.has(PermissionFlagsBits.Administrator) ||
+      member?.roles?.cache?.has("1571258779884986368") ||
+      member?.roles?.cache?.some((r: any) => r.name.toLowerCase().includes("announce perm"));
+
+    if (!isAllowed) {
+      await interaction.reply({
+        content: "❌ **Permission Denied:** You need the `📢 Announce Perms` role or Manage Server permission to broadcast announcements.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // 1. Guard against overlapping server-wide broadcasts
     if (isBroadcastActive(guildId)) {
       await interaction.reply({

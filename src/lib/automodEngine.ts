@@ -1222,7 +1222,7 @@ export async function executeAutoModCheck(
   let violationReason = "";
   let severity: "high" | "soft" = "high";
 
-  // Link Permissions evaluation:
+  // Feature permission role evaluations:
   const hasLinkPerms = Boolean(
     member &&
     (
@@ -1234,17 +1234,37 @@ export async function executeAutoModCheck(
     )
   );
 
+  const hasMentionPerms = Boolean(
+    member &&
+    (
+      member.roles.cache.has("1571258785589239878") ||
+      member.roles.cache.some((r) => r.name.toLowerCase().includes("mention perm"))
+    )
+  );
+
+  const hasAutoModBypass = Boolean(
+    member &&
+    (
+      member.roles.cache.has("1571258787778535536") ||
+      member.roles.cache.some((r) => r.name.toLowerCase().includes("automod bypass"))
+    )
+  );
+
   // A. Content Rules (Phishing, Invite, Link, Gali, Zalgo, Emoji, Caps)
   const content = message.content || "";
   const contentEval = evaluateContentForAutoMod(content, autoMod, hasLinkPerms);
   if (contentEval.triggered) {
-    violated = true;
-    violationReason = contentEval.reasons[0];
-    severity = contentEval.severity;
+    // If user has AutoMod Bypass, soft rules (Caps, Emoji, Zalgo) are skipped; slurs and scams are NEVER skipped
+    const isSoftRule = contentEval.reasons.some(r => r.includes("Caps") || r.includes("Emoji") || r.includes("Zalgo"));
+    if (!hasAutoModBypass || !isSoftRule) {
+      violated = true;
+      violationReason = contentEval.reasons[0];
+      severity = contentEval.severity;
+    }
   }
 
   // B. Anti-Mass-Mention (> 4 mentions)
-  if (!violated && autoMod.antiMention && "mentions" in message && message.mentions) {
+  if (!violated && !hasMentionPerms && !hasAutoModBypass && autoMod.antiMention && "mentions" in message && message.mentions) {
     const totalMentions =
       (message.mentions.users?.size || 0) + (message.mentions.roles?.size || 0);
     if (totalMentions > 4) {
@@ -1255,7 +1275,7 @@ export async function executeAutoModCheck(
   }
 
   // C. Anti-Spam (> 4 messages in 3 seconds)
-  if (!violated && !isEdit && autoMod.antiSpam && message.author?.id) {
+  if (!violated && !hasAutoModBypass && !isEdit && autoMod.antiSpam && message.author?.id) {
     const key = `${guild.id}:${message.author.id}`;
     const now = Date.now();
     const timestamps = userMessageTimes.get(key) || [];
@@ -1274,6 +1294,7 @@ export async function executeAutoModCheck(
   // D. Anti-Duplicate Flood (3 identical >= 6-char messages within 15s)
   if (
     !violated &&
+    !hasAutoModBypass &&
     !isEdit &&
     autoMod.antiDuplicate &&
     message.author?.id &&

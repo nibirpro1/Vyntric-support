@@ -164,6 +164,22 @@ const command: Command = {
       return;
     }
 
+    const staffMember = interaction.member as any;
+    const canModVc =
+      interaction.guild.ownerId === interaction.user.id ||
+      staffMember?.permissions?.has(PermissionFlagsBits.ModerateMembers) ||
+      staffMember?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
+      staffMember?.permissions?.has(PermissionFlagsBits.Administrator) ||
+      staffMember?.roles?.cache?.has("1571258783471243304") ||
+      staffMember?.roles?.cache?.some((r: any) => r.name.toLowerCase().includes("vc mod"));
+
+    if (!canModVc) {
+      await interaction.editReply({
+        content: "❌ **Permission Denied:** You need the `🎙️ VC Mod Perms` role or Moderate Members permission to use this command.",
+      });
+      return;
+    }
+
     const targetUser = interaction.options.getUser("member", true);
     const reason = interaction.options.getString("reason") || "No reason provided by staff";
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);

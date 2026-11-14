@@ -5,7 +5,8 @@ import { VyntricClient } from "../structures/VyntricClient";
 import { BRAND, setBrandAssets } from "../lib/brand";
 import { initDateChannelSync } from "../lib/dateChannelStore";
 
-const AVATAR_PATH = path.resolve(process.cwd(), "assets", "vyntric-avatar.jpg");
+const ANIMATED_AVATAR_PATH = path.resolve(process.cwd(), "assets", "vyntric-avatar.gif");
+const STATIC_AVATAR_PATH = path.resolve(process.cwd(), "assets", "vyntric-avatar.jpg");
 
 export default {
   // `clientReady` is the v15-safe name for the old `ready` event.
@@ -15,12 +16,16 @@ export default {
     console.log(`[INFO] ${BRAND.name} is online as ${client.user?.tag}`);
     console.log(`[INFO] Serving ${client.guilds.cache.size} guild(s).`);
 
-    // 1. Update bot Avatar to the new official Vyntric logo
-    if (client.user && fs.existsSync(AVATAR_PATH)) {
+    // 1. Update bot Avatar to the new animated Vyntric logo
+    const targetAvatar = fs.existsSync(ANIMATED_AVATAR_PATH)
+      ? ANIMATED_AVATAR_PATH
+      : STATIC_AVATAR_PATH;
+
+    if (client.user && fs.existsSync(targetAvatar)) {
       try {
-        const avatarBuffer = fs.readFileSync(AVATAR_PATH);
+        const avatarBuffer = fs.readFileSync(targetAvatar);
         await client.user.setAvatar(avatarBuffer);
-        console.log("[ready:avatar] Successfully updated bot avatar to Vyntric official logo.");
+        console.log(`[ready:avatar] Successfully updated bot avatar to animated Vyntric logo (${path.basename(targetAvatar)}).`);
       } catch (err: any) {
         console.warn("[ready:avatar] Could not update avatar (rate-limited by Discord or recently changed):", err.message);
       }

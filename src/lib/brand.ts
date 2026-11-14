@@ -6,9 +6,9 @@ import { EmbedBuilder } from "discord.js";
  * refreshed simply by changing the avatar in Discord (or BRAND_ICON_URL).
  */
 export const BRAND = {
-  name: "Plugsy",
-  shortName: "Plugsy",
-  footer: "Plugsy • All-in-One Discord Bot",
+  name: "Vyntric",
+  shortName: "Vyntric",
+  footer: "Vyntric • Official Support & Security",
   divider: "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
   colors: {
     primary: 0xb1121f,

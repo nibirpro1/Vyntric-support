@@ -1,7 +1,11 @@
+import fs from "fs";
+import path from "path";
 import { ActivityType, Events } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 import { BRAND, setBrandAssets } from "../lib/brand";
 import { initDateChannelSync } from "../lib/dateChannelStore";
+
+const AVATAR_PATH = path.resolve(process.cwd(), "assets", "vyntric-avatar.jpg");
 
 export default {
   // `clientReady` is the v15-safe name for the old `ready` event.
@@ -11,20 +15,46 @@ export default {
     console.log(`[INFO] ${BRAND.name} is online as ${client.user?.tag}`);
     console.log(`[INFO] Serving ${client.guilds.cache.size} guild(s).`);
 
-    // The bot avatar (your Vyntric logo) is reused as the icon on every embed.
+    // 1. Update bot Avatar to the new official Vyntric logo
+    if (client.user && fs.existsSync(AVATAR_PATH)) {
+      try {
+        const avatarBuffer = fs.readFileSync(AVATAR_PATH);
+        await client.user.setAvatar(avatarBuffer);
+        console.log("[ready:avatar] Successfully updated bot avatar to Vyntric official logo.");
+      } catch (err: any) {
+        console.warn("[ready:avatar] Could not update avatar (rate-limited by Discord or recently changed):", err.message);
+      }
+    }
+
+    // 2. Update bot Global Username to Vyntric
+    if (client.user && client.user.username !== "Vyntric") {
+      client.user.setUsername("Vyntric").then(() => {
+        console.log("[ready:username] Successfully changed username to Vyntric.");
+      }).catch((err: any) => {
+        console.warn("[ready:username] Could not set global username (may be rate-limited or taken):", err.message);
+      });
+    }
+
+    // 3. Update Guild Nickname to "Vyntric" in all guilds
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
+        if (me && me.nickname !== "Vyntric") {
+          await me.setNickname("Vyntric");
+          console.log(`[ready:nickname] Set server nickname to 'Vyntric' in ${guild.name}`);
+        }
+      } catch (err: any) {
+        console.warn(`[ready:nickname] Could not set nickname in ${guild.name}:`, err.message);
+      }
+    }
+
+    // Set brand icon asset to live avatar
     setBrandAssets({ icon: client.user?.displayAvatarURL({ size: 256 }) });
 
     client.user?.setPresence({
       status: "online",
-      activities: [{ name: "Plugsy • /play • /panel", type: ActivityType.Listening }],
+      activities: [{ name: "🛡️ Vyntric • All VCs Protected", type: ActivityType.Custom }],
     });
-
-    // Attempt to update username to Plugsy if not already set
-    if (client.user && client.user.username !== "Plugsy") {
-      client.user.setUsername("Plugsy").catch(() => {
-        /* Rate-limited by Discord or requires manual change in dev portal */
-      });
-    }
 
     // Initialize active giveaways and resume timers
     try {

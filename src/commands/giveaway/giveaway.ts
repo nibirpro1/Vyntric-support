@@ -88,10 +88,20 @@ const command: Command = {
             .setDescription("Custom host user to display on the giveaway card")
             .setRequired(false)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName("winner_mode")
+            .setDescription("Winner selection: 🎲 Fair Random or 🤫 Secret Pre-Selected Winner")
+            .setRequired(false)
+            .addChoices(
+              { name: "🎲 Fair Random Drawing (Default)", value: "random" },
+              { name: "🤫 Secret Forced Winner (Pre-selected)", value: "secret" }
+            )
+        )
         .addUserOption((opt) =>
           opt
             .setName("secret_winner")
-            .setDescription("🤫 Secretly guarantee this user wins (Admins only)")
+            .setDescription("🤫 User guaranteed to win (Required if Secret Forced Winner mode chosen)")
             .setRequired(false)
         )
     )
@@ -124,6 +134,16 @@ const command: Command = {
         .addStringOption((opt) =>
           opt.setName("message_id").setDescription("Giveaway message ID").setRequired(true)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName("winner_mode")
+            .setDescription("Choose winner mode: 🎲 Random or 🤫 Secret")
+            .setRequired(false)
+            .addChoices(
+              { name: "🎲 Fair Random Drawing", value: "random" },
+              { name: "🤫 Secret Forced Winner", value: "secret" }
+            )
+        )
         .addUserOption((opt) =>
           opt
             .setName("winner")
@@ -143,6 +163,16 @@ const command: Command = {
         .setDescription("Re-roll winner(s) for an ended giveaway")
         .addStringOption((opt) =>
           opt.setName("message_id").setDescription("Giveaway message ID").setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName("winner_mode")
+            .setDescription("Choose winner mode for reroll: 🎲 Random or 🤫 Secret")
+            .setRequired(false)
+            .addChoices(
+              { name: "🎲 Fair Random Drawing", value: "random" },
+              { name: "🤫 Secret Forced Winner", value: "secret" }
+            )
         )
         .addUserOption((opt) =>
           opt
@@ -283,11 +313,25 @@ const command: Command = {
         const targetChannel =
           (interaction.options.getChannel("channel") as TextChannel) ||
           (interaction.channel as TextChannel);
-        const secretWinner = interaction.options.getUser("secret_winner");
+        const winnerMode = interaction.options.getString("winner_mode");
+        let secretWinner = interaction.options.getUser("secret_winner");
         const requiredRole = interaction.options.getRole("required_role");
         const host = interaction.options.getUser("host") || interaction.user;
         const partnerServerInput = interaction.options.getString("partner_server");
         const partnerNameInput = interaction.options.getString("partner_name");
+
+        if (winnerMode === "secret" && !secretWinner) {
+          await interaction.reply({
+            content:
+              "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `secret_winner` option! Please re-run and select a user.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        if (winnerMode === "random") {
+          secretWinner = null;
+        }
 
         if (secretWinner && !isServerAdmin) {
           await interaction.reply({
@@ -398,8 +442,10 @@ const command: Command = {
 
           if (secretWinner) {
             replyLines.push(
-              `🤫 **Secret Winner Set:** <@${secretWinner.id}> is guaranteed to win!`
+              `🎯 **Winner Mode:** 🤫 Secret Pre-Selected Winner (<@${secretWinner.id}>)`
             );
+          } else {
+            replyLines.push(`🎯 **Winner Mode:** 🎲 100% Fair Random Drawing`);
           }
           if (requiredRole) {
             replyLines.push(`📜 **Required Role:** <@&${requiredRole.id}>`);
@@ -429,8 +475,19 @@ const command: Command = {
 
       case "end": {
         const messageId = interaction.options.getString("message_id", true).trim();
+        const winnerMode = interaction.options.getString("winner_mode");
         const forcedWinner = interaction.options.getUser("winner");
-        const forceRandom = interaction.options.getBoolean("force_random") ?? false;
+        const forceRandom =
+          winnerMode === "random" || (interaction.options.getBoolean("force_random") ?? false);
+
+        if (winnerMode === "secret" && !forcedWinner) {
+          await interaction.reply({
+            content:
+              "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `winner` option!",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -450,7 +507,19 @@ const command: Command = {
 
       case "reroll": {
         const messageId = interaction.options.getString("message_id", true).trim();
-        const secretWinner = interaction.options.getUser("secret_winner");
+        const winnerMode = interaction.options.getString("winner_mode");
+        let secretWinner = interaction.options.getUser("secret_winner");
+
+        if (winnerMode === "random") {
+          secretWinner = null;
+        } else if (winnerMode === "secret" && !secretWinner) {
+          await interaction.reply({
+            content:
+              "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `secret_winner` option!",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
 
         if (secretWinner && !isServerAdmin) {
           await interaction.reply({

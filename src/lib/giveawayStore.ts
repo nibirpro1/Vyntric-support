@@ -174,6 +174,37 @@ export function clearSecretWinners(messageId: string): boolean {
   return true;
 }
 
+export function addGiveawayEntry(
+  messageId: string,
+  userId: string
+): { success: boolean; alreadyEntered: boolean; entriesCount: number } | null {
+  const g = store[messageId];
+  if (!g || g.ended) return null;
+
+  if (g.entries.includes(userId)) {
+    return { success: true, alreadyEntered: true, entriesCount: g.entries.length };
+  }
+
+  g.entries.push(userId);
+  persist();
+  return { success: true, alreadyEntered: false, entriesCount: g.entries.length };
+}
+
+export function removeGiveawayEntry(
+  messageId: string,
+  userId: string
+): { success: boolean; entriesCount: number } | null {
+  const g = store[messageId];
+  if (!g || g.ended) return null;
+
+  const idx = g.entries.indexOf(userId);
+  if (idx >= 0) {
+    g.entries.splice(idx, 1);
+    persist();
+  }
+  return { success: true, entriesCount: g.entries.length };
+}
+
 export function toggleGiveawayEntry(
   messageId: string,
   userId: string

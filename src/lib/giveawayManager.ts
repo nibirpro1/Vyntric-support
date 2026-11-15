@@ -10,9 +10,11 @@ import {
 import { VyntricClient } from "../structures/VyntricClient";
 import { BRAND } from "./brand";
 import {
+  addGiveawayEntry,
   getActiveGiveaways,
   getGiveaway,
   Giveaway,
+  removeGiveawayEntry,
   saveGiveaway,
   toggleGiveawayEntry,
 } from "./giveawayStore";
@@ -352,7 +354,9 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
         c.isTextBased() &&
         (c.name.toLowerCase().includes("giveaway") ||
           c.name.toLowerCase().includes("ɢɪᴠᴇᴀᴡᴀʏꜱ") ||
-          c.id === "1552331192546623598")
+          c.name.toLowerCase().includes("giva") ||
+          c.id === "1552331192546623598" ||
+          c.id === "1507722709214380124")
     );
 
     for (const [_, channel] of textChannels) {
@@ -396,7 +400,7 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             const reaction = msg.reactions.cache.get("🎉");
             const entrySet = new Set<string>();
             if (reaction) {
-              const users = await reaction.users.fetch().catch(() => null);
+              const users = await reaction.users.fetch({ limit: 100 }).catch(() => null);
               if (users) {
                 users.forEach((u) => {
                   if (!u.bot) entrySet.add(u.id);
@@ -426,7 +430,7 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             // Existing giveaway in store: safely union any new reaction users without ever deleting entries
             const reaction = msg.reactions.cache.get("🎉");
             if (reaction) {
-              const users = await reaction.users.fetch().catch(() => null);
+              const users = await reaction.users.fetch({ limit: 100 }).catch(() => null);
               if (users) {
                 let updated = false;
                 users.forEach((u) => {
@@ -442,7 +446,13 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             }
           }
 
+          // Ensure bot reaction is present on active giveaways
           if (g && !g.ended && !isEnded) {
+            const hasBotReaction = msg.reactions.cache.get("🎉")?.me;
+            if (!hasBotReaction) {
+              await msg.react("🎉").catch(() => {});
+            }
+
             if (g.endTime <= Date.now()) {
               console.log(`[giveaways] Auto-ending overdue giveaway "${g.prize}" (${g.messageId})...`);
               await endGiveaway(g.messageId, client).catch((e) =>
@@ -485,7 +495,7 @@ export function initGiveaways(client: VyntricClient) {
     })
     .catch((err) => console.error("[giveaways:init:error]", err));
 
-  // 2. Periodic heartbeat every 30s to ensure no timers get stuck
+  // 2. Periodic heartbeat every 15s to ensure no timers get stuck
   setInterval(() => {
     const checkActive = getActiveGiveaways();
     const now = Date.now();
@@ -495,12 +505,12 @@ export function initGiveaways(client: VyntricClient) {
         endGiveaway(g.messageId, client).catch(() => {});
       }
     }
-  }, 30_000);
+  }, 15_000);
 
-  // 3. Background rescan every 5 minutes
+  // 3. Background rescan every 3 minutes
   setInterval(() => {
     recoverGiveawaysFromDiscord(client).catch(() => {});
-  }, 5 * 60_000);
+  }, 3 * 60_000);
 }
 
 /**
@@ -608,10 +618,28 @@ export async function handleGiveawayButton(
       }
     }
 
-    const res = toggleGiveawayEntry(messageId, interaction.user.id);
+    const res = addGiveawayEntry(messageId, interaction.user.id);
     if (!res) return;
 
-    // Update the message components with new entry count
+    if (res.alreadyEntered) {
+      // User is already entered! Never remove on Enter click. Provide clear confirmation + optional leave button
+      const leaveRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`gw_leave:${messageId}`)
+          .setLabel("Opt Out / Leave Giveaway")
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji("❌")
+      );
+
+      await interaction.reply({
+        content: `✅ **You are already entered!** You are already participating in the giveaway for **${g.prize}**!\n-# Total Participants: **${res.entriesCount}**`,
+        components: [leaveRow],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Newly entered! Update the message components with new entry count
     try {
       await interaction.message.edit({
         embeds: [buildGiveawayEmbed(g)],
@@ -621,14 +649,44 @@ export async function handleGiveawayButton(
       /* ignore */
     }
 
-    if (res.entered) {
+    await interaction.reply({
+      content: `🎉 **Entry Confirmed!** You have entered the giveaway for **${g.prize}**! Good luck!\n-# Total Participants: **${res.entriesCount}**`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Handle explicit Leave request
+  if (customId.startsWith("gw_leave")) {
+    const rawId = customId.replace("gw_leave:", "").replace("gw_leave", "").trim();
+    const messageId = rawId || interaction.message.id;
+    const g = getGiveaway(messageId);
+
+    if (!g || g.ended) {
       await interaction.reply({
-        content: `🎉 You have **entered** the giveaway for **${g.prize}**! Good luck! (Total Entries: **${g.entries.length}**)`,
+        content: "⌛ This giveaway is no longer active.",
         flags: MessageFlags.Ephemeral,
       });
-    } else {
+      return;
+    }
+
+    const res = removeGiveawayEntry(messageId, interaction.user.id);
+    if (res) {
+      try {
+        const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
+        if (channel) {
+          const msg = await channel.messages.fetch(messageId).catch(() => null);
+          if (msg) {
+            await msg.edit({
+              embeds: [buildGiveawayEmbed(g)],
+              components: buildGiveawayComponents(g),
+            });
+          }
+        }
+      } catch {}
+
       await interaction.reply({
-        content: `❌ You have **left** the giveaway for **${g.prize}**. (Total Entries: **${g.entries.length}**)`,
+        content: `❌ You have **left** the giveaway for **${g.prize}**.\n-# Total Participants: **${res.entriesCount}**`,
         flags: MessageFlags.Ephemeral,
       });
     }

@@ -274,9 +274,11 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           {
             name: "🚀 Starting a Giveaway",
             value:
-              "`/giveaway start prize:<text> duration:<time> winners:[num] channel:[#channel]`\n" +
-              "• Example: `/giveaway start prize: Nitro duration: 24h winners: 1`\n" +
-              "• Members can join by clicking the **Enter (count)** button or reacting with 🎉.",
+              "`/giveaway start prize:<text> duration:<time> [winners:num] [winner_mode:random|secret] [secret_winner:@user]`\n" +
+              "• **Winner Modes:**\n" +
+              "  - `🎲 Fair Random Drawing`: Draws winners completely randomly from all entrants.\n" +
+              "  - `🤫 Secret Forced Winner`: Pre-selects a secret winner who is guaranteed to win (hidden from members).\n" +
+              "• Members can join by clicking the **🎉 Enter** button or reacting with 🎉 without ever being accidentally removed.",
             inline: false,
           },
           {

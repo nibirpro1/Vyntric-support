@@ -562,6 +562,28 @@ export function liftPunishment(id: string, staffTag: string, reason: string): Pu
   return record;
 }
 
+/** Permanently deletes a punishment record by ID. */
+export function removePunishment(id: string): boolean {
+  const index = store.punishments.findIndex((p) => p.id === id);
+  if (index >= 0) {
+    store.punishments.splice(index, 1);
+    persist();
+    return true;
+  }
+  return false;
+}
+
+/** Clears all warnings for a specific member. Returns number of removed records. */
+export function clearUserWarnings(guildId: string, userId: string): number {
+  const initialLength = store.punishments.length;
+  store.punishments = store.punishments.filter(
+    (p) => !(p.guildId === guildId && p.userId === userId && p.kind === "warn")
+  );
+  const removed = initialLength - store.punishments.length;
+  if (removed > 0) persist();
+  return removed;
+}
+
 /* ============================================================================
    Task board & Project management
    ========================================================================== */

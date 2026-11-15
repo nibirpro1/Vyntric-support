@@ -69,7 +69,7 @@ export function buildGiveawayEmbed(g: Giveaway): EmbedBuilder {
         g.requiredRoleId ? `🔹 **Required Role:** <@&${g.requiredRoleId}>` : null,
         partnerReqText,
         "",
-        `🔹 React with 🎉 or click below to participate!`,
+        `🔹 Click the **🎉 Enter** button below to participate!`,
         `🔹 **Entries:** \`${g.entries.length}\``,
       ]
         .filter(Boolean)
@@ -422,6 +422,24 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             };
             saveGiveaway(g);
             recoveredCount++;
+          } else {
+            // Existing giveaway in store: safely union any new reaction users without ever deleting entries
+            const reaction = msg.reactions.cache.get("🎉");
+            if (reaction) {
+              const users = await reaction.users.fetch().catch(() => null);
+              if (users) {
+                let updated = false;
+                users.forEach((u) => {
+                  if (!u.bot && !g!.entries.includes(u.id)) {
+                    g!.entries.push(u.id);
+                    updated = true;
+                  }
+                });
+                if (updated) {
+                  saveGiveaway(g);
+                }
+              }
+            }
           }
 
           if (g && !g.ended && !isEnded) {

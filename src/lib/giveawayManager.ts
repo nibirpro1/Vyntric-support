@@ -58,7 +58,7 @@ export function buildGiveawayEmbed(g: Giveaway): EmbedBuilder {
     : null;
 
   const embed = new EmbedBuilder()
-    .setColor(0x00d2d3) // Teal/Cyan matching the user screenshot
+    .setColor(0x00d2d3) // Teal/Cyan matching Vyntric theme
     .setAuthor({ name: "🎁 New Giveaway 🎁" })
     .setTitle(`🎁 ${g.prize} 🎁`)
     .setDescription(
@@ -159,6 +159,7 @@ export async function endGiveaway(
   // ─────────────────────────────────────────────────────────────
   // WINNER SELECTION ALGORITHM
   // Supports both 100% Fair Random Mode AND Secret / Predetermined Winners
+  // Excludes Host from winning (unless host is the only entrant)
   // ─────────────────────────────────────────────────────────────
   const chosenWinners: string[] = [];
 
@@ -177,7 +178,6 @@ export async function endGiveaway(
         if (chosenWinners.length >= g.winnersCount) break;
         if (!chosenWinners.includes(secretId)) {
           chosenWinners.push(secretId);
-          // Ensure they exist in entries so it looks completely authentic
           if (!g.entries.includes(secretId)) {
             g.entries.push(secretId);
           }
@@ -186,8 +186,12 @@ export async function endGiveaway(
     }
   }
 
-  // 3. Fill remaining winner slots randomly from entries (or all slots if random mode)
-  const pool = g.entries.filter((id) => !chosenWinners.includes(id));
+  // 3. Fill remaining winner slots randomly from eligible entries
+  // Prefer participants who are NOT the host
+  const nonHostEntries = g.entries.filter((id) => id !== g.hostId);
+  const eligibleEntries = nonHostEntries.length > 0 ? nonHostEntries : g.entries;
+  const pool = eligibleEntries.filter((id) => !chosenWinners.includes(id));
+
   while (chosenWinners.length < g.winnersCount && pool.length > 0) {
     const randIdx = Math.floor(Math.random() * pool.length);
     const winner = pool.splice(randIdx, 1)[0];
@@ -197,7 +201,7 @@ export async function endGiveaway(
   g.winnerIds = chosenWinners;
   saveGiveaway(g);
 
-  // Update Discord Message & announce
+  // Update Discord Message & announce with winner ping
   try {
     const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
     if (channel) {
@@ -208,20 +212,50 @@ export async function endGiveaway(
           : "_No valid entries_";
 
       if (msg) {
-        await msg.edit({
-          embeds: [buildEndedGiveawayEmbed(g, winnersText)],
-          components: buildEndedGiveawayComponents(g),
-        }).catch(() => {});
+        await msg
+          .edit({
+            embeds: [buildEndedGiveawayEmbed(g, winnersText)],
+            components: buildEndedGiveawayComponents(g),
+          })
+          .catch(() => {});
       }
 
       if (chosenWinners.length > 0) {
-        await channel.send({
-          content: `🎉 Congratulations ${winnersText}! You won **${g.prize}**!\n-# Hosted by <@${g.hostId}>`,
-        }).catch(() => {});
+        await channel
+          .send({
+            content: `🎉 Congratulations ${winnersText}! You won **${g.prize}**!\n-# Hosted by <@${g.hostId}>`,
+            allowedMentions: { users: chosenWinners },
+          })
+          .catch((err) => console.error("[giveaway:announceMsg:error]", err));
+
+        // Direct DM notification to winner(s)
+        for (const winnerId of chosenWinners) {
+          try {
+            const winnerUser = await client.users.fetch(winnerId).catch(() => null);
+            if (winnerUser) {
+              const dmEmbed = new EmbedBuilder()
+                .setColor(0x00d2d3)
+                .setTitle("🎉 You Won a Giveaway in Vyntric!")
+                .setDescription(
+                  `Congratulations! You were selected as the winner for **${g.prize}**!\n\n` +
+                    `• **Prize:** \`${g.prize}\`\n` +
+                    `• **Channel:** <#${channel.id}>\n` +
+                    `• **Hosted by:** <@${g.hostId}>\n\n` +
+                    `Please contact the host <@${g.hostId}> or open a ticket to claim your reward!`
+                )
+                .setFooter({ text: `${BRAND.name} Giveaways` })
+                .setTimestamp();
+
+              await winnerUser.send({ embeds: [dmEmbed] }).catch(() => {});
+            }
+          } catch {}
+        }
       } else {
-        await channel.send({
-          content: `⚠️ Giveaway for **${g.prize}** ended, but no valid entries were found.`,
-        }).catch(() => {});
+        await channel
+          .send({
+            content: `⚠️ Giveaway for **${g.prize}** ended, but no valid entries were found.`,
+          })
+          .catch(() => {});
       }
     }
   } catch (err) {
@@ -246,32 +280,39 @@ export async function rerollGiveaway(
     newWinner = secretWinnerId;
     if (!g.entries.includes(secretWinnerId)) g.entries.push(secretWinnerId);
   } else {
-    // Pick from entrants who didn't already win (or all entrants if all won)
-    const pool = g.entries.filter((id) => !g.winnerIds.includes(id));
-    const finalPool = pool.length > 0 ? pool : g.entries;
-    if (finalPool.length === 0) {
+    // Pick from entrants who didn't already win (preferring non-hosts)
+    const nonHostPool = g.entries.filter((id) => !g.winnerIds.includes(id) && id !== g.hostId);
+    const finalPool = nonHostPool.length > 0 ? nonHostPool : g.entries.filter((id) => !g.winnerIds.includes(id));
+    const fallbackPool = finalPool.length > 0 ? finalPool : g.entries;
+
+    if (fallbackPool.length === 0) {
       return { success: false, message: "No entries available to reroll." };
     }
-    const randIdx = Math.floor(Math.random() * finalPool.length);
-    newWinner = finalPool[randIdx];
+    const randIdx = Math.floor(Math.random() * fallbackPool.length);
+    newWinner = fallbackPool[randIdx];
   }
 
   g.winnerIds = [newWinner];
   saveGiveaway(g);
 
-  // Announce reroll in channel
+  // Announce reroll in channel with ping
   try {
     const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
     if (channel) {
       const msg = await channel.messages.fetch(g.messageId).catch(() => null);
       if (msg) {
-        await msg.edit({
-          embeds: [buildEndedGiveawayEmbed(g, `<@${newWinner}>`)],
-        }).catch(() => {});
+        await msg
+          .edit({
+            embeds: [buildEndedGiveawayEmbed(g, `<@${newWinner}>`)],
+          })
+          .catch(() => {});
       }
-      await channel.send({
-        content: `🎉 **GIVEAWAY REROLL:** Congratulations <@${newWinner}>! You are the new winner of **${g.prize}**!`,
-      }).catch(() => {});
+      await channel
+        .send({
+          content: `🎉 **GIVEAWAY REROLL:** Congratulations <@${newWinner}>! You are the new winner of **${g.prize}**!`,
+          allowedMentions: { users: [newWinner] },
+        })
+        .catch(() => {});
     }
   } catch (err) {
     console.error("[giveaway:reroll:error]", err);
@@ -300,31 +341,148 @@ export function scheduleGiveawayTimer(g: Giveaway, client: VyntricClient) {
 }
 
 /**
+ * Scans giveaway channels on startup or periodically to ensure any giveaways
+ * created while the bot was offline or whose store was reset are restored and ended correctly.
+ */
+export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promise<number> {
+  let recoveredCount = 0;
+  for (const [_, guild] of client.guilds.cache) {
+    const textChannels = guild.channels.cache.filter(
+      (c): c is TextChannel =>
+        c.isTextBased() &&
+        (c.name.toLowerCase().includes("giveaway") ||
+          c.name.toLowerCase().includes("ɢɪᴠᴇᴀᴡᴀʏꜱ") ||
+          c.id === "1552331192546623598")
+    );
+
+    for (const [_, channel] of textChannels) {
+      try {
+        const fetchedMessages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+        if (!fetchedMessages) continue;
+
+        for (const [msgId, msg] of fetchedMessages) {
+          if (msg.author.id !== client.user?.id) continue;
+          if (msg.embeds.length === 0) continue;
+
+          const embed = msg.embeds[0];
+          const isGiveaway =
+            embed.author?.name?.includes("Giveaway") ||
+            embed.title?.includes("🎁") ||
+            embed.description?.includes("Winners:");
+
+          if (!isGiveaway) continue;
+
+          const isEnded = Boolean(
+            embed.author?.name?.includes("Ended") ||
+            embed.footer?.text?.toLowerCase().includes("ended")
+          );
+
+          let g: Giveaway | undefined = getGiveaway(msgId);
+
+          if (!g) {
+            const prize = embed.title?.replace(/🎁/g, "").trim() || "Giveaway Prize";
+            const winnersMatch = embed.description?.match(/Winners:\*\*\s*`?(\d+)`?/i);
+            const winnersCount = winnersMatch ? parseInt(winnersMatch[1], 10) : 1;
+
+            const endMatch = embed.description?.match(/<t:(\d+):[RfdDtT]>/);
+            const endTime = endMatch
+              ? parseInt(endMatch[1], 10) * 1000
+              : msg.createdTimestamp + 24 * 60 * 60 * 1000;
+
+            const hostMatch = embed.description?.match(/Hosted by:\*\*\s*<@!?(\d+)>/i);
+            const hostId = hostMatch ? hostMatch[1] : msg.author.id;
+
+            // Recover entries from reactions
+            const reaction = msg.reactions.cache.get("🎉");
+            const entrySet = new Set<string>();
+            if (reaction) {
+              const users = await reaction.users.fetch().catch(() => null);
+              if (users) {
+                users.forEach((u) => {
+                  if (!u.bot) entrySet.add(u.id);
+                });
+              }
+            }
+
+            g = {
+              id: msgId,
+              guildId: guild.id,
+              channelId: channel.id,
+              messageId: msgId,
+              prize,
+              winnersCount,
+              hostId,
+              requiredRoleId: null,
+              secretWinnerIds: [],
+              entries: Array.from(entrySet),
+              startTime: msg.createdTimestamp,
+              endTime,
+              ended: isEnded,
+              winnerIds: [],
+            };
+            saveGiveaway(g);
+            recoveredCount++;
+          }
+
+          if (g && !g.ended && !isEnded) {
+            if (g.endTime <= Date.now()) {
+              console.log(`[giveaways] Auto-ending overdue giveaway "${g.prize}" (${g.messageId})...`);
+              await endGiveaway(g.messageId, client).catch((e) =>
+                console.error("[giveaways:autoEnd:error]", e)
+              );
+            } else {
+              scheduleGiveawayTimer(g, client);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[giveaways:recoverChannel:${channel.id}]`, err);
+      }
+    }
+  }
+  return recoveredCount;
+}
+
+/**
  * Initializes all active giveaways on bot startup
  */
 export function initGiveaways(client: VyntricClient) {
-  const active = getActiveGiveaways();
-  console.log(`[giveaways] Resuming ${active.length} active giveaway(s)...`);
+  // 1. Recover and sync any active or overdue giveaways from Discord channels
+  recoverGiveawaysFromDiscord(client)
+    .then((count) => {
+      if (count > 0) {
+        console.log(`[giveaways] Discovered and synced ${count} giveaway(s) from Discord channels.`);
+      }
+      const active = getActiveGiveaways();
+      console.log(`[giveaways] Tracking ${active.length} active giveaway(s).`);
 
-  for (const g of active) {
-    if (g.endTime <= Date.now()) {
-      // Ended while bot was offline
-      endGiveaway(g.messageId, client).catch(() => {});
-    } else {
-      scheduleGiveawayTimer(g, client);
-    }
-  }
+      for (const g of active) {
+        if (g.endTime <= Date.now()) {
+          console.log(`[giveaways] Ending overdue giveaway "${g.prize}" (${g.messageId})...`);
+          endGiveaway(g.messageId, client).catch(() => {});
+        } else {
+          scheduleGiveawayTimer(g, client);
+        }
+      }
+    })
+    .catch((err) => console.error("[giveaways:init:error]", err));
 
-  // Periodic heartbeat every 30s to ensure no timers get stuck
+  // 2. Periodic heartbeat every 30s to ensure no timers get stuck
   setInterval(() => {
     const checkActive = getActiveGiveaways();
     const now = Date.now();
     for (const g of checkActive) {
-      if (g.endTime <= now) {
+      if (g.endTime <= now && !g.ended) {
+        console.log(`[giveaways:heartbeat] Auto-ending giveaway "${g.prize}" (${g.messageId})...`);
         endGiveaway(g.messageId, client).catch(() => {});
       }
     }
   }, 30_000);
+
+  // 3. Background rescan every 5 minutes
+  setInterval(() => {
+    recoverGiveawaysFromDiscord(client).catch(() => {});
+  }, 5 * 60_000);
 }
 
 /**
@@ -339,7 +497,41 @@ export async function handleGiveawayButton(
   if (customId.startsWith("gw_enter")) {
     const rawId = customId.replace("gw_enter:", "").replace("gw_enter", "").trim();
     const messageId = rawId || interaction.message.id;
-    const g = getGiveaway(messageId);
+    let g = getGiveaway(messageId);
+
+    if (!g) {
+      // Attempt instant recovery from the interaction message
+      const embed = interaction.message.embeds[0];
+      if (embed) {
+        const prize = embed.title?.replace(/🎁/g, "").trim() || "Giveaway Prize";
+        const winnersMatch = embed.description?.match(/Winners:\*\*\s*`?(\d+)`?/i);
+        const winnersCount = winnersMatch ? parseInt(winnersMatch[1], 10) : 1;
+        const endMatch = embed.description?.match(/<t:(\d+):[RfdDtT]>/);
+        const endTime = endMatch
+          ? parseInt(endMatch[1], 10) * 1000
+          : interaction.message.createdTimestamp + 24 * 60 * 60 * 1000;
+        const hostMatch = embed.description?.match(/Hosted by:\*\*\s*<@!?(\d+)>/i);
+        const hostId = hostMatch ? hostMatch[1] : interaction.user.id;
+
+        g = {
+          id: messageId,
+          guildId: interaction.guildId || "",
+          channelId: interaction.channelId,
+          messageId,
+          prize,
+          winnersCount,
+          hostId,
+          requiredRoleId: null,
+          secretWinnerIds: [],
+          entries: [],
+          startTime: interaction.message.createdTimestamp,
+          endTime,
+          ended: false,
+          winnerIds: [],
+        };
+        saveGiveaway(g);
+      }
+    }
 
     if (!g) {
       await interaction.reply({
@@ -349,11 +541,14 @@ export async function handleGiveawayButton(
       return;
     }
 
-    if (g.ended) {
+    if (g.ended || g.endTime <= Date.now()) {
       await interaction.reply({
         content: "⌛ This giveaway has already ended!",
         flags: MessageFlags.Ephemeral,
       });
+      if (!g.ended) {
+        endGiveaway(g.messageId, client).catch(() => {});
+      }
       return;
     }
 
@@ -371,12 +566,11 @@ export async function handleGiveawayButton(
       }
     }
 
-    // Partner server requirement check ("oder server must dhuka lagbe")
+    // Partner server requirement check
     if (g.partnerGuildId || g.partnerInviteUrl) {
       if (g.partnerGuildId) {
         const partnerGuild = client.guilds.cache.get(g.partnerGuildId);
         if (partnerGuild) {
-          // Bot is in the partner server: verify real-time membership!
           const partnerMember =
             partnerGuild.members.cache.get(interaction.user.id) ||
             (await partnerGuild.members.fetch(interaction.user.id).catch(() => null));

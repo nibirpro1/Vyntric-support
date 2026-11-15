@@ -1,0 +1,49 @@
+{
+  "1570712485466603572": {
+    "id": "1570712485466603572",
+    "guildId": "1507706011622965258",
+    "channelId": "1552331192546623598",
+    "messageId": "1570712485466603572",
+    "prize": "Discord 2025 Aged account",
+    "winnersCount": 1,
+    "hostId": "1076990970727501884",
+    "requiredRoleId": null,
+    "partnerInviteUrl": null,
+    "partnerGuildId": null,
+    "partnerGuildName": null,
+    "secretWinnerIds": [],
+    "entries": [
+      "940596799264153650",
+      "1101089256081985697",
+      "1103590850795155486",
+      "1359047690725625907",
+      "1382229102815350834",
+      "1488008142943027230"
+    ],
+    "startTime": 1794557438962,
+    "endTime": 1794643838000,
+    "ended": true,
+    "winnerIds": [
+      "1103590850795155486"
+    ]
+  },
+  "1570415276397174814": {
+    "id": "1570415276397174814",
+    "guildId": "1507706011622965258",
+    "channelId": "1552331192546623598",
+    "messageId": "1570415276397174814",
+    "prize": "Minecraft Full Access",
+    "winnersCount": 1,
+    "hostId": "1524780934350508112",
+    "requiredRoleId": null,
+    "partnerInviteUrl": null,
+    "partnerGuildId": null,
+    "partnerGuildName": null,
+    "secretWinnerIds": [],
+    "entries": [],
+    "startTime": 1794409778798,
+    "endTime": 1795091378000,
+    "ended": false,
+    "winnerIds": []
+  }
+}

@@ -16,6 +16,7 @@ import {
 } from "../../lib/store";
 import { getAutoModConfig } from "../../lib/automodStore";
 import { getLoggingConfig } from "../../lib/loggingStore";
+import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
 
 function canStaffWarn(member: GuildMember): boolean {
@@ -25,6 +26,7 @@ function canStaffWarn(member: GuildMember): boolean {
   if (member.permissions.has(PermissionFlagsBits.ModerateMembers)) return true;
   if (member.permissions.has(PermissionFlagsBits.KickMembers)) return true;
   if (member.permissions.has(PermissionFlagsBits.BanMembers)) return true;
+  if (hasFeaturePermission(member, "mod")) return true;
 
   // Key staff roles in Vyntric
   return member.roles.cache.some((r) => {
@@ -186,9 +188,12 @@ const command: Command = {
       } else if (strikeCount === 4) {
         timeoutMs = 12 * 60 * 60 * 1000; // 12 hours
         escalationNote = "🚨 **Strike 4 Penalty:** 12-Hour Timeout";
-      } else if (strikeCount >= 5) {
+      } else if (strikeCount === 5) {
         timeoutMs = 24 * 60 * 60 * 1000; // 24 hours
-        escalationNote = "🔨 **Strike 5+ Severe Penalty:** 24-Hour Timeout (Staff Review for Ban)";
+        escalationNote = "🔨 **Strike 5 Penalty:** 24-Hour Timeout (Timeout Only Policy)";
+      } else if (strikeCount >= 6) {
+        timeoutMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+        escalationNote = `🔨 **Strike ${strikeCount} Severe Penalty:** 3-Day Timeout (Timeout Only Policy)`;
       }
 
       if (timeoutMs > 0 && targetMember && targetMember.moderatable) {
@@ -212,7 +217,7 @@ const command: Command = {
                 `• **Strike Level:** **Strike ${strikeCount}**\n` +
                 `• **Action Taken:** ${escalationNote}\n` +
                 `• **Case ID:** \`${record.id}\`\n\n` +
-                `*Please respect server rules to prevent further timeouts or a permanent ban.*`
+                `*Please respect server rules to avoid further timeouts. Note: This server enforces a strict Timeout-Only moderation policy (no kicks, no bans).*`
             )
             .setFooter({ text: `${BRAND.name} Moderation` })
             .setTimestamp();

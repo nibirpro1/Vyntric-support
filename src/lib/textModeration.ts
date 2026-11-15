@@ -14,6 +14,7 @@ import {
 } from "./store";
 import { getAutoModConfig } from "./automodStore";
 import { getLoggingConfig } from "./loggingStore";
+import { hasFeaturePermission } from "./permissionRolesStore";
 import { BRAND } from "./brand";
 
 /**
@@ -27,6 +28,7 @@ export function canStaffModerate(member: GuildMember): boolean {
   if (member.permissions.has(PermissionFlagsBits.ModerateMembers)) return true;
   if (member.permissions.has(PermissionFlagsBits.KickMembers)) return true;
   if (member.permissions.has(PermissionFlagsBits.BanMembers)) return true;
+  if (hasFeaturePermission(member, "mod")) return true;
 
   return member.roles.cache.some((r) => {
     const name = r.name.toLowerCase();
@@ -250,9 +252,12 @@ export async function handleTextModeration(message: Message): Promise<boolean> {
     } else if (strikeCount === 4) {
       timeoutMs = 12 * 60 * 60 * 1000;
       escalationNote = "🚨 **Strike 4 Penalty:** 12-Hour Timeout";
-    } else if (strikeCount >= 5) {
+    } else if (strikeCount === 5) {
       timeoutMs = 24 * 60 * 60 * 1000;
-      escalationNote = "🔨 **Strike 5+ Severe Penalty:** 24-Hour Timeout";
+      escalationNote = "🔨 **Strike 5 Penalty:** 24-Hour Timeout (Timeout Only Policy)";
+    } else if (strikeCount >= 6) {
+      timeoutMs = 3 * 24 * 60 * 60 * 1000;
+      escalationNote = `🔨 **Strike ${strikeCount} Severe Penalty:** 3-Day Timeout (Timeout Only Policy)`;
     }
 
     if (timeoutMs > 0 && targetMember && targetMember.moderatable) {
@@ -275,7 +280,7 @@ export async function handleTextModeration(message: Message): Promise<boolean> {
             `• **Strike Level:** **Strike ${strikeCount}**\n` +
             `• **Action Taken:** ${escalationNote}\n` +
             `• **Case ID:** \`${record.id}\`\n\n` +
-            `*Please follow our server rules to avoid further timeouts or a permanent ban.*`
+            `*Please follow our server rules to avoid further timeouts. Note: This server enforces a strict Timeout-Only moderation policy (no kicks, no bans).*`
         )
         .setFooter({ text: `${BRAND.name} Moderation` })
         .setTimestamp();
@@ -460,38 +465,45 @@ export async function handleTextModeration(message: Message): Promise<boolean> {
     return true;
   }
 
-  // 6. KICK
+  // 6. KICK -> Converted to Timeout per Server Policy (No Kick, No Ban)
   if (commandName === "kick") {
-    if (!targetMember || !targetMember.kickable) {
-      await message.reply({ content: "❌ I cannot kick this member (higher role or missing permissions)." });
+    if (!targetMember || !targetMember.moderatable) {
+      await message.reply({
+        content: "❌ I cannot timeout this member (higher role or missing permissions).",
+      });
       return true;
     }
 
-    const reason = remainingArgs.trim() || "Kicked by staff";
+    const reason = remainingArgs.trim() || "Kicking disabled - converted to timeout";
+    const durationMs = 12 * 60 * 60 * 1000; // 12-hour timeout fallback
     try {
-      await targetMember.kick(`${reason} (by ${message.author.tag})`);
+      await targetMember.timeout(durationMs, `[Policy: No Kick] ${reason} (by ${message.author.tag})`);
 
       addPunishment({
         guildId: guild.id,
         userId: targetUser.id,
         username: targetUser.tag,
-        kind: "kick",
-        reason,
-        durationDays: null,
+        kind: "timeout",
+        reason: `[No-Kick Policy -> 12h Timeout] ${reason}`,
+        durationDays: 0.5,
         staffId: message.author.id,
         staffTag: message.author.tag,
       });
 
       const embed = new EmbedBuilder()
         .setColor(BRAND.colors.warning)
-        .setTitle("👢 Member Kicked from Server")
-        .setDescription(`**${targetUser.tag}** has been kicked from the server.`)
+        .setTitle("🛡️ Server Policy: Timeout Enforced (No Kicks)")
+        .setDescription(
+          `**${targetUser.tag}** was targeted with \`kick\`, but server policy **strictly disallows kicking**.\n` +
+          `Applied a **12-Hour Timeout** instead to maintain server discipline.`
+        )
         .addFields(
           { name: "👤 Member", value: `${targetUser} (\`${targetUser.id}\`)`, inline: true },
           { name: "🛡️ Moderator", value: `${message.author} (\`${message.author.tag}\`)`, inline: true },
+          { name: "⏳ Action Taken", value: "12-Hour Timeout (Kicks Disabled)", inline: true },
           { name: "📝 Reason", value: `\`${reason}\``, inline: false }
         )
-        .setFooter({ text: BRAND.footer })
+        .setFooter({ text: `${BRAND.name} Moderation • Timeout Only Policy` })
         .setTimestamp();
 
       await message.reply({ embeds: [embed] });
@@ -500,45 +512,50 @@ export async function handleTextModeration(message: Message): Promise<boolean> {
         await logChannel.send({ embeds: [embed] }).catch(() => {});
       }
     } catch (err: any) {
-      await message.reply({ content: `❌ Failed to kick member: ${err.message}` });
+      await message.reply({ content: `❌ Failed to timeout member: ${err.message}` });
     }
     return true;
   }
 
-  // 7. BAN
+  // 7. BAN -> Converted to Timeout per Server Policy (No Kick, No Ban)
   if (commandName === "ban") {
-    if (targetMember && !targetMember.bannable) {
-      await message.reply({ content: "❌ I cannot ban this member (higher role or missing permissions)." });
+    if (!targetMember || !targetMember.moderatable) {
+      await message.reply({
+        content: "❌ I cannot timeout this member (higher role or missing permissions).",
+      });
       return true;
     }
 
-    const reason = remainingArgs.trim() || "Banned by staff";
+    const reason = remainingArgs.trim() || "Banning disabled - converted to timeout";
+    const durationMs = 24 * 60 * 60 * 1000; // 24-hour timeout fallback
     try {
-      await guild.members.ban(targetUser.id, {
-        reason: `${reason} (by ${message.author.tag})`,
-      });
+      await targetMember.timeout(durationMs, `[Policy: No Ban] ${reason} (by ${message.author.tag})`);
 
       addPunishment({
         guildId: guild.id,
         userId: targetUser.id,
         username: targetUser.tag,
-        kind: "ban",
-        reason,
-        durationDays: null,
+        kind: "timeout",
+        reason: `[No-Ban Policy -> 24h Timeout] ${reason}`,
+        durationDays: 1,
         staffId: message.author.id,
         staffTag: message.author.tag,
       });
 
       const embed = new EmbedBuilder()
         .setColor(BRAND.colors.danger)
-        .setTitle("🔨 Member Banned from Server")
-        .setDescription(`**${targetUser.tag}** has been permanently banned from the server.`)
+        .setTitle("🛡️ Server Policy: Timeout Enforced (No Bans)")
+        .setDescription(
+          `**${targetUser.tag}** was targeted with \`ban\`, but server policy **strictly disallows banning**.\n` +
+          `Applied a **24-Hour Timeout** instead to protect the server without banning.`
+        )
         .addFields(
           { name: "👤 Member", value: `${targetUser} (\`${targetUser.id}\`)`, inline: true },
           { name: "🛡️ Moderator", value: `${message.author} (\`${message.author.tag}\`)`, inline: true },
+          { name: "⏳ Action Taken", value: "24-Hour Timeout (Bans Disabled)", inline: true },
           { name: "📝 Reason", value: `\`${reason}\``, inline: false }
         )
-        .setFooter({ text: BRAND.footer })
+        .setFooter({ text: `${BRAND.name} Moderation • Timeout Only Policy` })
         .setTimestamp();
 
       await message.reply({ embeds: [embed] });
@@ -547,7 +564,7 @@ export async function handleTextModeration(message: Message): Promise<boolean> {
         await logChannel.send({ embeds: [embed] }).catch(() => {});
       }
     } catch (err: any) {
-      await message.reply({ content: `❌ Failed to ban member: ${err.message}` });
+      await message.reply({ content: `❌ Failed to timeout member: ${err.message}` });
     }
     return true;
   }

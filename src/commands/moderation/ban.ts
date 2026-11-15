@@ -37,27 +37,27 @@ const command: Command = {
 
     const member = interaction.guild.members.cache.get(user.id);
 
-    if (member && !member.bannable) {
+    if (member && !member.moderatable) {
       await interaction.reply({
-        content: "❌ I cannot ban this user. Their role may be higher than mine.",
+        content: "❌ I cannot timeout this user. Their role may be higher than mine.",
         ephemeral: true,
       });
       return;
     }
 
     try {
-      await interaction.guild.members.ban(user.id, {
-        reason: `${reason} (by ${interaction.user.tag})`,
-        deleteMessageSeconds: deleteDays * 86400,
-      });
+      const durationMs = 24 * 60 * 60 * 1000;
+      if (member) {
+        await member.timeout(durationMs, `[Policy: No Ban -> 24h Timeout] ${reason} (by ${interaction.user.tag})`);
+      }
 
       addPunishment({
         guildId: interaction.guild.id,
         userId: user.id,
         username: user.tag,
-        kind: "ban",
-        reason,
-        durationDays: null,
+        kind: "timeout",
+        reason: `[No-Ban Policy -> 24h Timeout] ${reason}`,
+        durationDays: 1,
         staffId: interaction.user.id,
         staffTag: interaction.user.tag,
       });
@@ -66,13 +66,15 @@ const command: Command = {
         embeds: [
           new EmbedBuilder()
             .setColor(BRAND.colors.danger)
-            .setTitle("🔨 Member Banned")
+            .setTitle("🛡️ Server Policy: Timeout Enforced (No Bans)")
             .setDescription(
               [
                 `👤 **User:** ${user} (\`${user.tag}\`)`,
                 `🛡️ **Moderator:** ${interaction.user}`,
+                `⏳ **Action Taken:** 24-Hour Timeout (Bans Disabled)`,
                 `📝 **Reason:** ${reason}`,
-                deleteDays > 0 ? `🗑️ **Messages Deleted:** Past ${deleteDays} day(s)` : "",
+                ``,
+                `*ℹ️ Server policy strictly enforces **Timeout Only** (\`no banned no kick jus timeout\`).*`,
               ]
                 .filter(Boolean)
                 .join("\n")
@@ -81,7 +83,7 @@ const command: Command = {
       });
     } catch (err: any) {
       await interaction.reply({
-        content: `❌ Failed to ban: ${err.message}`,
+        content: `❌ Failed to timeout member: ${err.message}`,
         ephemeral: true,
       });
     }

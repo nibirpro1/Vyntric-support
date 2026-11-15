@@ -41,7 +41,10 @@ const command: Command = {
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
-              { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" }
+              { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" },
+              { name: "⚖️ Warn & Mod (⚖️ Warn & Mod Perms)", value: "mod" },
+              { name: "🎫 Ticket Staff (🎫 Ticket Staff Perms)", value: "ticket" },
+              { name: "🔐 Security & AntiNuke (🔐 Security Perms)", value: "security" }
             )
         )
         .addStringOption((opt) =>
@@ -68,7 +71,10 @@ const command: Command = {
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
-              { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" }
+              { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" },
+              { name: "⚖️ Warn & Mod (⚖️ Warn & Mod Perms)", value: "mod" },
+              { name: "🎫 Ticket Staff (🎫 Ticket Staff Perms)", value: "ticket" },
+              { name: "🔐 Security & AntiNuke (🔐 Security Perms)", value: "security" }
             )
         )
         .addStringOption((opt) =>
@@ -100,12 +106,15 @@ const command: Command = {
               { name: "🎁 Giveaways", value: "giveaway" },
               { name: "🎙️ Voice Mod", value: "vcmod" },
               { name: "🔔 Mass Mentions", value: "mention" },
-              { name: "🛡️ AutoMod Bypass", value: "automod_bypass" }
+              { name: "🛡️ AutoMod Bypass", value: "automod_bypass" },
+              { name: "⚖️ Warn & Mod", value: "mod" },
+              { name: "🎫 Ticket Staff", value: "ticket" },
+              { name: "🔐 Security & AntiNuke", value: "security" }
             )
         )
     )
     .addSubcommand((sub) =>
-      sub.setName("roles").setDescription("Display all 7 modular feature permission roles and their status")
+      sub.setName("roles").setDescription("Display all 11 modular feature permission roles and their status")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {

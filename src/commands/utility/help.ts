@@ -3,13 +3,16 @@ import {
   ChatInputCommandInteraction,
   ComponentType,
   EmbedBuilder,
+  GuildMember,
   MessageFlags,
+  PermissionFlagsBits,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from "discord.js";
 import { Command } from "../../structures/Command";
 import { BRAND } from "../../lib/brand";
+import { HELP_CATEGORIES, buildHelpSelectMenu, isAdministrator } from "../../lib/helpDashboard";
 
 interface CategoryDoc {
   id: string;
@@ -574,59 +577,23 @@ const command: Command = {
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const specificCmd = interaction.options.getString("command")?.toLowerCase();
-    const guild = interaction.guild;
-    const guildName = guild?.name || "Vyntric";
-    const iconUrl = guild?.iconURL({ size: 256 }) || undefined;
+    if (!interaction.guild) return;
 
-    // Direct search for a single command if requested
-    if (specificCmd) {
-      let foundCat: CategoryDoc | undefined;
-      let foundCmd: (typeof CATEGORIES)[0]["commands"][0] | undefined;
+    const caller =
+      (interaction.member as GuildMember) ||
+      (await interaction.guild.members.fetch(interaction.user.id).catch(() => null));
 
-      for (const cat of CATEGORIES) {
-        for (const cmd of cat.commands) {
-          if (cmd.name.toLowerCase().includes(specificCmd)) {
-            foundCat = cat;
-            foundCmd = cmd;
-            break;
-          }
-        }
-        if (foundCmd) break;
-      }
-
-      if (foundCmd && foundCat) {
-        const embed = new EmbedBuilder()
-          .setColor(BRAND.colors.primary)
-          .setTitle(`📖 Command Help: /${foundCmd.name}`)
-          .setDescription(`Category: ${foundCat.emoji} **${foundCat.label}**\n\n${foundCmd.summary}`)
-          .setThumbnail(iconUrl || null)
-          .addFields(
-            { name: "⌨️ Syntax & Usage", value: `\`${foundCmd.syntax}\``, inline: false },
-            {
-              name: "🔒 Permission",
-              value: foundCmd.permission ? `\`${foundCmd.permission}\`` : "Everyone",
-              inline: true,
-            },
-            {
-              name: "💡 Details & Example",
-              value: foundCmd.details,
-              inline: false,
-            }
-          )
-          .setFooter({ text: "Run /help without arguments to browse all categories" });
-
-        await interaction.reply({
-          embeds: [embed],
-          components: [buildSelectMenu(foundCat.id)],
-        });
-        return;
-      }
+    if (!caller || !isAdministrator(caller)) {
+      await interaction.reply({
+        content: "❌ **Access Denied:** `/help` and server feature documentation are restricted to **Server Administrators** only.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
 
-    // Default overview page
-    const initialEmbed = buildOverviewEmbed(guildName, iconUrl);
-    const initialMenu = buildSelectMenu("overview");
+    const overviewCat = HELP_CATEGORIES.find((c) => c.id === "overview") || HELP_CATEGORIES[0];
+    const initialEmbed = overviewCat.embed(interaction.guild);
+    const initialMenu = buildHelpSelectMenu("overview");
 
     const replyMsg = await interaction.reply({
       embeds: [initialEmbed],
@@ -637,7 +604,7 @@ const command: Command = {
     // Create interactive collector for dropdown menu
     const collector = replyMsg.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
-      time: 300_000, // 5 minutes
+      time: 600_000, // 10 minutes
     });
 
     collector.on("collect", async (menuInt) => {
@@ -650,43 +617,27 @@ const command: Command = {
       }
 
       const selected = menuInt.values[0];
-      if (selected === "overview") {
-        await menuInt.update({
-          embeds: [buildOverviewEmbed(guildName, iconUrl)],
-          components: [buildSelectMenu("overview")],
-        });
-        return;
-      }
-
-      const category = CATEGORIES.find((c) => c.id === selected);
-      if (!category) {
-        await menuInt.update({
-          embeds: [buildOverviewEmbed(guildName, iconUrl)],
-          components: [buildSelectMenu("overview")],
-        });
-        return;
-      }
+      const category = HELP_CATEGORIES.find((c) => c.id === selected) || overviewCat;
+      const catEmbed = category.embed(interaction.guild!);
+      const catMenu = buildHelpSelectMenu(category.id);
 
       await menuInt.update({
-        embeds: [buildCategoryEmbed(category, guildName, iconUrl)],
-        components: [buildSelectMenu(category.id)],
+        embeds: [catEmbed],
+        components: [catMenu],
       });
     });
 
     collector.on("end", async () => {
-      // Disable the menu when collector expires
       try {
         const disabledMenu = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId("help_expired")
-            .setPlaceholder("⌛ Menu expired. Run /help again.")
+            .setPlaceholder("⌛ Menu session expired. Run /help again.")
             .setDisabled(true)
             .addOptions({ label: "Expired", value: "expired" })
         );
         await interaction.editReply({ components: [disabledMenu] }).catch(() => null);
-      } catch {
-        /* message already deleted or expired */
-      }
+      } catch {}
     });
   },
 };

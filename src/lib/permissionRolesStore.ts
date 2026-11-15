@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { Guild, Role } from "discord.js";
+import { Guild, GuildMember, PermissionFlagsBits, Role } from "discord.js";
 
 export type FeaturePermission =
   | "link"
@@ -11,7 +11,10 @@ export type FeaturePermission =
   | "giveaway"
   | "vcmod"
   | "mention"
-  | "automod_bypass";
+  | "automod_bypass"
+  | "mod"
+  | "ticket"
+  | "security";
 
 export interface PermissionRoleDef {
   key: FeaturePermission;
@@ -86,6 +89,30 @@ export const PERMISSION_ROLE_DEFS: PermissionRoleDef[] = [
     emoji: "🛡️",
     color: 0x2ecc71,
     description: "Bypass AutoMod rate limits, caps, duplicate text, and emoji filters",
+  },
+  {
+    key: "mod",
+    name: "⚖️ Warn & Mod Perms",
+    defaultId: "1571509403918532618",
+    emoji: "⚖️",
+    color: 0xe67e22,
+    description: "Issue warnings (/warn, warn @user) and timeouts (mute @user, /timeout)",
+  },
+  {
+    key: "ticket",
+    name: "🎫 Ticket Staff Perms",
+    defaultId: "1571509405915291740",
+    emoji: "🎫",
+    color: 0x9b59b6,
+    description: "Manage, claim, close, and handle tickets in the support system",
+  },
+  {
+    key: "security",
+    name: "🔐 Security Perms",
+    defaultId: "1571509407865638993",
+    emoji: "🔐",
+    color: 0xe74c3c,
+    description: "Manage Anti-Nuke, Anti-Raid, and server protection settings",
   },
 ];
 
@@ -200,3 +227,32 @@ export async function resolveFeatureRole(
     return null;
   }
 }
+
+/**
+ * Checks if a member has permission for a specific feature:
+ * - Server Owner always has permission
+ * - Server Administrators always have permission
+ * - Or member holds the dedicated feature role
+ */
+export function hasFeaturePermission(member: GuildMember, feature: FeaturePermission): boolean {
+  if (member.id === member.guild.ownerId) return true;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+
+  const currentMap = getGuildPermissionRoles(member.guild.id);
+  const effectiveKey = feature === "announce" ? "announce_server" : feature;
+  const targetId = currentMap[effectiveKey] || currentMap[feature];
+
+  if (targetId && member.roles.cache.has(targetId)) return true;
+
+  const def = PERMISSION_ROLE_DEFS.find((d) => d.key === effectiveKey);
+  if (def && member.roles.cache.has(def.defaultId)) return true;
+
+  // Fallback match by role name
+  if (def) {
+    const role = member.roles.cache.find((r) => r.name.toLowerCase() === def.name.toLowerCase());
+    if (role) return true;
+  }
+
+  return false;
+}
+

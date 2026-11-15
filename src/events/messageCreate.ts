@@ -9,6 +9,7 @@ import { BRAND } from "../lib/brand";
 import { cacheMessage, logCommandExecution, logMessageSent } from "../lib/loggingStore";
 import { executeAutoModCheck } from "../lib/automodEngine";
 import { handleTextModeration } from "../lib/textModeration";
+import { handleHelpTextCommand } from "../lib/helpDashboard";
 
 // Message deduplication cache: messageId -> boolean
 const handledMessageIds = new Set<string>();
@@ -61,6 +62,14 @@ export default {
     // ─────────────────────────────────────────────────────────────
     const isTextModHandled = await handleTextModeration(message);
     if (isTextModHandled) {
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // ADMINISTRATOR MASTER HELP HUB (.help, ?help, !help, help)
+    // ─────────────────────────────────────────────────────────────
+    const isHelpHandled = await handleHelpTextCommand(message);
+    if (isHelpHandled) {
       return;
     }
 

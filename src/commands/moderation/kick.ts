@@ -35,24 +35,25 @@ const command: Command = {
       return;
     }
 
-    if (!member.kickable) {
+    if (!member.moderatable) {
       await interaction.reply({
-        content: "❌ I cannot kick this user. Their role is higher than mine.",
+        content: "❌ I cannot timeout this user. Their role is higher than mine.",
         ephemeral: true,
       });
       return;
     }
 
     try {
-      await member.kick(`${reason} (by ${interaction.user.tag})`);
+      const durationMs = 12 * 60 * 60 * 1000;
+      await member.timeout(durationMs, `[Policy: No Kick -> 12h Timeout] ${reason} (by ${interaction.user.tag})`);
 
       addPunishment({
         guildId: interaction.guild.id,
         userId: user.id,
         username: user.tag,
-        kind: "kick",
-        reason,
-        durationDays: null,
+        kind: "timeout",
+        reason: `[No-Kick Policy -> 12h Timeout] ${reason}`,
+        durationDays: 0.5,
         staffId: interaction.user.id,
         staffTag: interaction.user.tag,
       });
@@ -61,19 +62,22 @@ const command: Command = {
         embeds: [
           new EmbedBuilder()
             .setColor(BRAND.colors.warning)
-            .setTitle("👢 Member Kicked")
+            .setTitle("🛡️ Server Policy: Timeout Enforced (No Kicks)")
             .setDescription(
               [
                 `👤 **User:** ${user} (\`${user.tag}\`)`,
                 `🛡️ **Moderator:** ${interaction.user}`,
+                `⏳ **Action Taken:** 12-Hour Timeout (Kicks Disabled)`,
                 `📝 **Reason:** ${reason}`,
+                ``,
+                `*ℹ️ Server policy strictly enforces **Timeout Only** (\`no banned no kick jus timeout\`).*`,
               ].join("\n")
             ),
         ],
       });
     } catch (err: any) {
       await interaction.reply({
-        content: `❌ Failed to kick: ${err.message}`,
+        content: `❌ Failed to timeout user: ${err.message}`,
         ephemeral: true,
       });
     }

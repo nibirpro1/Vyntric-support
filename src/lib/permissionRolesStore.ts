@@ -5,6 +5,8 @@ import { Guild, Role } from "discord.js";
 export type FeaturePermission =
   | "link"
   | "media"
+  | "announce_server"
+  | "announce_uhc"
   | "announce"
   | "giveaway"
   | "vcmod"
@@ -38,12 +40,20 @@ export const PERMISSION_ROLE_DEFS: PermissionRoleDef[] = [
     description: "Post images, attachments, files, videos & media",
   },
   {
-    key: "announce",
-    name: "📢 Announce Perms",
-    defaultId: "1571258779884986368",
+    key: "announce_server",
+    name: "📢 Server Announce",
+    defaultId: "1571405116869840926",
     emoji: "📢",
     color: 0xf39c12,
-    description: "Create and publish official server announcements (/announcement)",
+    description: "Publish official server announcements in #announcement (/announcement)",
+  },
+  {
+    key: "announce_uhc",
+    name: "⚔️ UHC Announce",
+    defaultId: "1571405118786633798",
+    emoji: "⚔️",
+    color: 0xe74c3c,
+    description: "Publish announcements and events in UHC channels (/announcement)",
   },
   {
     key: "giveaway",
@@ -90,7 +100,7 @@ function ensureDir() {
   }
 }
 
-function readStore(): Record<string, Record<FeaturePermission, string>> {
+function readStore(): Record<string, Record<string, string>> {
   try {
     ensureDir();
     if (!fs.existsSync(PERMS_FILE)) return {};
@@ -102,7 +112,7 @@ function readStore(): Record<string, Record<FeaturePermission, string>> {
   }
 }
 
-let store: Record<string, Record<FeaturePermission, string>> = readStore();
+let store: Record<string, Record<string, string>> = readStore();
 
 function persist() {
   try {
@@ -115,12 +125,13 @@ function persist() {
   }
 }
 
-export function getGuildPermissionRoles(guildId: string): Record<FeaturePermission, string> {
+export function getGuildPermissionRoles(guildId: string): Record<string, string> {
   if (!store[guildId]) {
-    const defaults = {} as Record<FeaturePermission, string>;
+    const defaults: Record<string, string> = {};
     for (const def of PERMISSION_ROLE_DEFS) {
       defaults[def.key] = def.defaultId;
     }
+    defaults["announce"] = "1571405116869840926";
     store[guildId] = defaults;
     persist();
   }
@@ -134,6 +145,9 @@ export function setGuildPermissionRole(
 ): void {
   const current = getGuildPermissionRoles(guildId);
   current[feature] = roleId;
+  if (feature === "announce_server") {
+    current["announce"] = roleId;
+  }
   store[guildId] = current;
   persist();
 }
@@ -149,11 +163,12 @@ export async function resolveFeatureRole(
   guild: Guild,
   feature: FeaturePermission
 ): Promise<Role | null> {
-  const def = PERMISSION_ROLE_DEFS.find((d) => d.key === feature);
+  const effectiveKey = feature === "announce" ? "announce_server" : feature;
+  const def = PERMISSION_ROLE_DEFS.find((d) => d.key === effectiveKey);
   if (!def) return null;
 
   const currentMap = getGuildPermissionRoles(guild.id);
-  const targetId = currentMap[feature] || def.defaultId;
+  const targetId = currentMap[effectiveKey] || currentMap[feature] || def.defaultId;
 
   if (targetId) {
     const existing = guild.roles.cache.get(targetId);
@@ -164,7 +179,7 @@ export async function resolveFeatureRole(
   const byName = guild.roles.cache.find(
     (r) =>
       r.name.toLowerCase() === def.name.toLowerCase() ||
-      r.name.toLowerCase().includes(def.key)
+      r.name.toLowerCase().includes(def.name.toLowerCase().replace(/[^a-z]/g, ""))
   );
   if (byName) {
     setGuildPermissionRole(guild.id, feature, byName.id);

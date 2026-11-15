@@ -1,11 +1,14 @@
 import { Events, VoiceState, PermissionFlagsBits, EmbedBuilder, TextChannel } from "discord.js";
 import { getAutoModConfig } from "../lib/automodStore";
+import { isUserVcBanned, getVcBan } from "../lib/vcBanStore";
 import { BRAND } from "../lib/brand";
 
 // Track rapid mute/unmute/deafen state changes: guildId:userId -> timestamps[]
 const voiceSpamMap = new Map<string, number[]>();
 // Track rapid VC channel switches: guildId:userId -> timestamps[]
 const voiceHopMap = new Map<string, number[]>();
+// Track rapid connect/disconnect spam: guildId:userId -> timestamps[]
+const voiceGhostMap = new Map<string, number[]>();
 
 export default {
   name: Events.VoiceStateUpdate,
@@ -15,7 +18,32 @@ export default {
     const guild = newState.guild || oldState.guild;
     if (!member || !guild || member.user.bot) return;
 
-    // 1. If member connects or switches channels while timed out (communication disabled):
+    // 1. Enforce VC Ban (Instant kick if member is VC-banned in this server)
+    if (newState.channelId && isUserVcBanned(guild.id, member.id)) {
+      const banRecord = getVcBan(guild.id, member.id);
+      try {
+        await member.voice.disconnect("AutoMod: Active VC Ban penalty");
+        console.log(`[automod:vc] Disconnected VC-banned member ${member.user.tag} from #${newState.channel?.name}`);
+
+        const dmEmbed = new EmbedBuilder()
+          .setColor(BRAND.colors.danger)
+          .setTitle("🚫 Voice Channel Access Denied")
+          .setDescription(`You are **VC-Banned** in **${guild.name}** and are not permitted to join any voice channel.`)
+          .addFields(
+            { name: "Reason", value: `\`${banRecord?.reason || "VC Ban enforced by staff"}\``, inline: true },
+            { name: "Issued By", value: `${banRecord?.staffTag || "Staff Moderator"}`, inline: true }
+          )
+          .setFooter({ text: `${BRAND.name} Voice Security` })
+          .setTimestamp();
+
+        await member.send({ embeds: [dmEmbed] }).catch(() => {});
+      } catch (err) {
+        console.error("[automod:vc:ban_kick:error]", err);
+      }
+      return;
+    }
+
+    // 2. If member connects or switches channels while timed out (communication disabled):
     if (newState.channelId) {
       if (member.isCommunicationDisabled()) {
         try {
@@ -26,10 +54,67 @@ export default {
       }
     }
 
-    // 2. Anti-Louding & Voice State Abuse Protection
     const autoMod = getAutoModConfig(guild.id);
+
+    // 3. Anti-Ghost / Rapid Connect-Disconnect Spam (Trolls repeatedly clicking join/leave to spam chime sounds)
+    const toggledConnection =
+      (!oldState.channelId && newState.channelId) || (oldState.channelId && !newState.channelId);
+    if (autoMod.enabled && toggledConnection) {
+      const ghostKey = `ghost:${guild.id}:${member.id}`;
+      const now = Date.now();
+      const ghostTimes = (voiceGhostMap.get(ghostKey) || []).filter((t) => now - t < 7000);
+      ghostTimes.push(now);
+      voiceGhostMap.set(ghostKey, ghostTimes);
+
+      if (ghostTimes.length >= 6) {
+        voiceGhostMap.delete(ghostKey);
+        try {
+          if (member.voice.channel) {
+            await member.voice.disconnect("AutoMod: Rapid Voice Join/Leave Chime Spam").catch(() => {});
+          }
+
+          if (member.moderatable) {
+            await member.timeout(5 * 60 * 1000, "AutoMod: Rapid Voice Channel Join/Leave Chime Spam");
+          }
+
+          if (autoMod.dmOnPunish) {
+            const dmEmbed = new EmbedBuilder()
+              .setColor(BRAND.colors.danger)
+              .setTitle("⚠️ Timed Out for Voice Chime Spam")
+              .setDescription(
+                `You were timed out for **5 minutes** in **${guild.name}** for repeatedly connecting and disconnecting from voice channels to spam join chimes.`
+              )
+              .setFooter({ text: `${BRAND.name} Voice Security` })
+              .setTimestamp();
+
+            await member.send({ embeds: [dmEmbed] }).catch(() => {});
+          }
+
+          if (autoMod.logChannelId) {
+            const logChannel = guild.channels.cache.get(autoMod.logChannelId);
+            if (logChannel && logChannel.isTextBased()) {
+              const logEmbed = new EmbedBuilder()
+                .setColor(BRAND.colors.danger)
+                .setTitle("🛡️ AutoMod: Rapid Voice Connect/Disconnect Spam")
+                .setDescription(`**${member.user.tag}** was detected spamming voice channel join/leave chimes.`)
+                .addFields(
+                  { name: "Offender", value: `${member.user} (\`${member.id}\`)`, inline: true },
+                  { name: "Action Taken", value: "`Disconnected from VC` + `5m Timeout`", inline: true }
+                )
+                .setFooter({ text: BRAND.footer })
+                .setTimestamp();
+
+              await (logChannel as TextChannel).send({ embeds: [logEmbed] }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.error("[automod:vc:ghost:error]", err);
+        }
+      }
+    }
+
+    // 4. Anti-Louding & Voice State Abuse Protection (Rapid self-mute/deafen crackling spam)
     if (autoMod.enabled && autoMod.antiLouding && newState.channelId) {
-      // Check for rapid self-mute / self-deafen toggling (trolls spamming mic clicks / crackling audio)
       const toggledState =
         oldState.selfMute !== newState.selfMute ||
         oldState.selfDeaf !== newState.selfDeaf;
@@ -44,7 +129,6 @@ export default {
         if (timestamps.length >= 8) {
           voiceSpamMap.delete(key);
 
-          // Disconnect & 10-minute timeout for Anti-Louding
           try {
             if (member.voice.channel) {
               await member.voice.disconnect("AutoMod: Anti-Louding (Rapid Mic Noise Spam)").catch(() => {});
@@ -54,7 +138,6 @@ export default {
               await member.timeout(10 * 60 * 1000, "AutoMod: Anti-Louding (VC Crackle & Mic Spam)");
             }
 
-            // DM Notice
             if (autoMod.dmOnPunish) {
               const dmEmbed = new EmbedBuilder()
                 .setColor(BRAND.colors.danger)
@@ -68,7 +151,6 @@ export default {
               await member.send({ embeds: [dmEmbed] }).catch(() => {});
             }
 
-            // Mod Log notification
             if (autoMod.logChannelId) {
               const logChannel = guild.channels.cache.get(autoMod.logChannelId);
               if (logChannel && logChannel.isTextBased()) {
@@ -94,7 +176,7 @@ export default {
       }
     }
 
-    // 3. Anti-VC Hopping / Raid Protection (Trolls jumping across 5+ VCs within 5s to disrupt chats)
+    // 5. Anti-VC Hopping / Raid Protection (Trolls jumping across 5+ VCs within 5s)
     if (autoMod.enabled && oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
       const hopKey = `hop:${guild.id}:${member.id}`;
       const now = Date.now();

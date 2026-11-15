@@ -154,20 +154,63 @@ const command: Command = {
 
     const guildId = interaction.guild.id;
 
-    const member = interaction.member as any;
-    const isAllowed =
-      interaction.guild.ownerId === interaction.user.id ||
-      member?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
-      member?.permissions?.has(PermissionFlagsBits.Administrator) ||
-      member?.roles?.cache?.has("1571258779884986368") ||
-      member?.roles?.cache?.some((r: any) => r.name.toLowerCase().includes("announce perm"));
+    const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe());
+    const channelOption = interaction.options.getChannel("channel");
+    const target = (channelOption ?? interaction.channel) as TextChannel | null;
 
-    if (!isAllowed) {
+    if (!target || !target.isTextBased() || !canPost(target, me)) {
       await interaction.reply({
-        content: "❌ **Permission Denied:** You need the `📢 Announce Perms` role or Manage Server permission to broadcast announcements.",
+        content: "I cannot post an announcement there — check my channel permissions (ViewChannel, SendMessages, EmbedLinks).",
         flags: MessageFlags.Ephemeral,
       });
       return;
+    }
+
+    const member = interaction.member as any;
+    const isOwnerOrAdmin =
+      interaction.guild.ownerId === interaction.user.id ||
+      member?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
+      member?.permissions?.has(PermissionFlagsBits.Administrator);
+
+    // Channel-specific role check: UHC channels vs Server Announcement
+    const isUhcChannel =
+      target.id === "1555978972519469117" || // 〢ᴜʜᴄ-ᴇᴠᴇɴᴛꜱ
+      target.id === "1571037814785708072" || // 〢ᴜʜᴄ-ᴀɴɴoᴜnᴄᴍᴇɴᴛ
+      target.parentId === "1551666618587676713" || // UHC Events category
+      target.name.toLowerCase().includes("uhc");
+
+    if (isUhcChannel) {
+      const hasUhcPerm =
+        isOwnerOrAdmin ||
+        member?.roles?.cache?.has("1571405118786633798") ||
+        member?.roles?.cache?.some((r: any) => r.name.toLowerCase().includes("uhc announce"));
+
+      if (!hasUhcPerm) {
+        await interaction.reply({
+          content:
+            "❌ **Permission Denied:** You need the `⚔️ UHC Announce` role or Administrator permission to broadcast in UHC channels.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    } else {
+      const hasServerPerm =
+        isOwnerOrAdmin ||
+        member?.roles?.cache?.has("1571405116869840926") ||
+        member?.roles?.cache?.some(
+          (r: any) =>
+            r.name.toLowerCase().includes("server announce") ||
+            r.name.toLowerCase().includes("announce perm")
+        );
+
+      if (!hasServerPerm) {
+        await interaction.reply({
+          content:
+            "❌ **Permission Denied:** You need the `📢 Server Announce` role or Administrator permission to broadcast server announcements.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
     }
 
     // 1. Guard against overlapping server-wide broadcasts
@@ -188,18 +231,6 @@ const command: Command = {
         content:
           `⏳ **Announcement cooldown active.**\n` +
           `An announcement was recently sent. Please wait **${cooldown}s** before broadcasting another one to prevent spamming members.`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe());
-    const channelOption = interaction.options.getChannel("channel");
-    const target = (channelOption ?? interaction.channel) as TextChannel | null;
-
-    if (!target || !target.isTextBased() || !canPost(target, me)) {
-      await interaction.reply({
-        content: "I cannot post an announcement there — check my channel permissions (ViewChannel, SendMessages, EmbedLinks).",
         flags: MessageFlags.Ephemeral,
       });
       return;

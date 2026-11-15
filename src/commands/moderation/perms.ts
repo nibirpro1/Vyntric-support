@@ -36,7 +36,8 @@ const command: Command = {
             .addChoices(
               { name: "🔗 Links & Invites (🔗 Link Perms)", value: "link" },
               { name: "🖼️ Media & Attachments (🖼️ Media Perms)", value: "media" },
-              { name: "📢 Announcements (📢 Announce Perms)", value: "announce" },
+              { name: "📢 Server Announce (📢 Server Announce)", value: "announce_server" },
+              { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
@@ -62,7 +63,8 @@ const command: Command = {
             .addChoices(
               { name: "🔗 Links & Invites (🔗 Link Perms)", value: "link" },
               { name: "🖼️ Media & Attachments (🖼️ Media Perms)", value: "media" },
-              { name: "📢 Announcements (📢 Announce Perms)", value: "announce" },
+              { name: "📢 Server Announce (📢 Server Announce)", value: "announce_server" },
+              { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
@@ -93,7 +95,8 @@ const command: Command = {
             .addChoices(
               { name: "🔗 Links & Invites", value: "link" },
               { name: "🖼️ Media & Attachments", value: "media" },
-              { name: "📢 Announcements", value: "announce" },
+              { name: "📢 Server Announce", value: "announce_server" },
+              { name: "⚔️ UHC Announce", value: "announce_uhc" },
               { name: "🎁 Giveaways", value: "giveaway" },
               { name: "🎙️ Voice Mod", value: "vcmod" },
               { name: "🔔 Mass Mentions", value: "mention" },
@@ -179,7 +182,8 @@ const command: Command = {
       return;
     }
 
-    const feature = interaction.options.getString("feature", true) as FeaturePermission;
+    let feature = interaction.options.getString("feature", true) as FeaturePermission;
+    if ((feature as string) === "announce") feature = "announce_server";
     const def = PERMISSION_ROLE_DEFS.find((d) => d.key === feature)!;
     const role = await resolveFeatureRole(interaction.guild, feature);
 

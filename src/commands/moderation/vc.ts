@@ -6,11 +6,13 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   VoiceBasedChannel,
+  TextChannel,
 } from "discord.js";
 import { Command } from "../../structures/Command";
 import { addPunishment } from "../../lib/store";
 import { getAutoModConfig } from "../../lib/automodStore";
 import { formatPunishmentLabel } from "../../lib/automodEngine";
+import { addVcBan, removeVcBan, getGuildVcBans, isUserVcBanned } from "../../lib/vcBanStore";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
@@ -84,6 +86,108 @@ const command: Command = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName("ban")
+        .setDescription("Permanently ban a member from all Voice Channels in this server")
+        .addUserOption((opt) =>
+          opt.setName("member").setDescription("Member to ban from Voice Channels").setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName("reason").setDescription("Reason for VC ban").setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("unban")
+        .setDescription("Unban a member from Voice Channels")
+        .addUserOption((opt) =>
+          opt.setName("member").setDescription("Member to unban from VC").setRequired(true)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("banlist").setDescription("List all currently VC-banned members")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("lock")
+        .setDescription("Lock a Voice Channel so regular members cannot join")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Voice Channel to lock (defaults to your current VC)")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("unlock")
+        .setDescription("Unlock a Voice Channel so members can join")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Voice Channel to unlock (defaults to your current VC)")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("muteall")
+        .setDescription("Server-mute all non-staff members in a Voice Channel")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Voice Channel (defaults to your current VC)")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("unmuteall")
+        .setDescription("Server-unmute all members in a Voice Channel")
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Voice Channel (defaults to your current VC)")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("moveall")
+        .setDescription("Bulk move all members from one Voice Channel to another")
+        .addChannelOption((opt) =>
+          opt
+            .setName("from_channel")
+            .setDescription("Source Voice Channel")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("to_channel")
+            .setDescription("Destination Voice Channel")
+            .addChannelTypes(ChannelType.GuildVoice)
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("clear")
+        .setDescription("Clear recent messages in this voice channel's text chat")
+        .addIntegerOption((opt) =>
+          opt
+            .setName("amount")
+            .setDescription("Number of messages to clear (1-100, default: 50)")
+            .setMinValue(1)
+            .setMaxValue(100)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName("timeout")
         .setDescription("Timeout a member and immediately kick them from Voice Channel")
         .addUserOption((opt) =>
@@ -115,40 +219,42 @@ const command: Command = {
     if (!interaction.guild) return;
 
     const sub = interaction.options.getSubcommand();
-    const isEphemeral = sub === "status";
+    const isEphemeral = sub === "status" || sub === "banlist";
     await interaction.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
 
     if (sub === "status") {
       const config = getAutoModConfig(interaction.guild.id);
+      const bans = getGuildVcBans(interaction.guild.id);
       const embed = new EmbedBuilder()
         .setColor(BRAND.colors.primary)
-        .setTitle("🎙️ Vyntric Voice Channel (VC) Protection Status")
+        .setTitle("🎙️ Vyntric VC Voice Shield & Anti-Abuse System")
         .setDescription(
-          "Vyntric actively moderates all voice channels across the server against abusive language (galagali), ear-rape/shouting, and mic spam."
+          "Real-time voice channel anti-abuse, automated anti-gali chat protection, and staff voice controls."
         )
         .addFields(
           {
-            name: "🛡️ VC Gali Shield",
-            value: config.antiBadWords
-              ? "✅ **Active across All VCs**\n*Catches Bangla, Banglish, Hindi & English profanity in VC chat with instant message deletion, 5m timeout & instant VC kick.*"
-              : "❌ **Disabled**",
-            inline: false,
-          },
-          {
-            name: "🔊 Anti-Louding / Ear-Rape",
-            value: config.antiLouding
-              ? "✅ **Enabled (10m Timeout)**\n*Detects scream text, ear-rape slurs & rapid mic state spam.*"
-              : "❌ **Disabled by default**\n*Enable anytime with `/automod louding enabled:true`.*",
-            inline: false,
-          },
-          {
-            name: "⚡ Base VC Penalty",
-            value: `\`${formatPunishmentLabel(config.punishment)}\` + Immediate Voice Disconnect`,
+            name: "🛡️ VC Chat AutoMod Gali Shield",
+            value: config.enabled ? "✅ Active (Instant VC Kick + 5m Timeout on slurs)" : "❌ Disabled",
             inline: true,
           },
           {
-            name: "🛑 Auto-Escalation Ladder",
-            value: config.escalatePunishment ? "✅ Enabled (Increases on repeat)" : "❌ Disabled",
+            name: "🔊 Anti-Louding & Mic Crackle",
+            value: config.antiLouding ? "✅ Active (Disconnects + 10m Timeout on spam/crackling)" : "❌ Disabled",
+            inline: true,
+          },
+          {
+            name: "🚫 Active VC Bans",
+            value: `${bans.length} member(s) banned from voice channels`,
+            inline: true,
+          },
+          {
+            name: "🔀 Anti-VC Hopping / Raid",
+            value: "✅ Active (5+ fast channel hops = 5m timeout)",
+            inline: true,
+          },
+          {
+            name: "👻 Anti-Ghost Join/Leave Chime Spam",
+            value: "✅ Active (Rapid connect/disconnect = 5m timeout)",
             inline: true,
           },
           {
@@ -158,6 +264,36 @@ const command: Command = {
           }
         )
         .setFooter({ text: `${BRAND.name} Voice Security • ${BRAND.footer}` })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "banlist") {
+      const bans = getGuildVcBans(interaction.guild.id);
+      if (bans.length === 0) {
+        await interaction.editReply({
+          content: "✅ There are currently **no active VC bans** in this server.",
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(BRAND.colors.danger)
+        .setTitle(`🚫 Active Voice Channel Bans (${bans.length})`)
+        .setDescription(
+          bans
+            .slice(0, 25)
+            .map(
+              (b, i) =>
+                `**${i + 1}.** <@${b.userId}> (\`${b.userTag}\`)\n` +
+                `• Reason: \`${b.reason}\`\n` +
+                `• Banned By: ${b.staffTag} • <t:${Math.floor(b.timestamp / 1000)}:R>`
+            )
+            .join("\n\n")
+        )
+        .setFooter({ text: "Use /vc unban <member> to revoke a VC ban" })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
@@ -180,9 +316,267 @@ const command: Command = {
       return;
     }
 
+    // Channel-level operations
+    if (sub === "lock" || sub === "unlock") {
+      const channelOption = interaction.options.getChannel("channel");
+      const callerVc = staffMember?.voice?.channel;
+      const targetChannel = (channelOption || callerVc) as VoiceBasedChannel | null;
+
+      if (!targetChannel) {
+        await interaction.editReply({
+          content: "❌ Please specify a voice channel or join one to perform this action.",
+        });
+        return;
+      }
+
+      const isLocking = sub === "lock";
+      try {
+        await (targetChannel as any).permissionOverwrites.edit(
+          interaction.guild.roles.everyone.id,
+          {
+            Connect: isLocking ? false : null,
+          },
+          { reason: `VC ${isLocking ? "Locked" : "Unlocked"} by ${interaction.user.tag}` }
+        );
+
+        const embed = new EmbedBuilder()
+          .setColor(isLocking ? BRAND.colors.danger : BRAND.colors.success)
+          .setTitle(isLocking ? "🔒 Voice Channel Locked" : "🔓 Voice Channel Unlocked")
+          .setDescription(
+            isLocking
+              ? `**#${targetChannel.name}** is now **locked**. Non-staff members cannot connect.`
+              : `**#${targetChannel.name}** is now **unlocked**. Members can connect normally.`
+          )
+          .addFields({
+            name: "Moderator",
+            value: `${interaction.user} (\`${interaction.user.tag}\`)`,
+            inline: true,
+          })
+          .setFooter({ text: BRAND.footer })
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+      } catch (err: any) {
+        await interaction.editReply({
+          content: `❌ Failed to ${sub} voice channel: ${err.message || "Missing permissions"}`,
+        });
+      }
+      return;
+    }
+
+    if (sub === "muteall" || sub === "unmuteall") {
+      const channelOption = interaction.options.getChannel("channel");
+      const callerVc = staffMember?.voice?.channel;
+      const targetChannel = (channelOption || callerVc) as VoiceBasedChannel | null;
+
+      if (!targetChannel) {
+        await interaction.editReply({
+          content: "❌ Please specify a voice channel or join one to perform this action.",
+        });
+        return;
+      }
+
+      const isMuting = sub === "muteall";
+      let affected = 0;
+      for (const [_, member] of targetChannel.members) {
+        if (member.id === interaction.user.id || member.user.bot) continue;
+        if (
+          isMuting &&
+          (member.permissions.has(PermissionFlagsBits.ModerateMembers) ||
+            member.permissions.has(PermissionFlagsBits.Administrator))
+        ) {
+          continue;
+        }
+
+        try {
+          if (isMuting && !member.voice.serverMute) {
+            await member.voice.setMute(true, `VC MuteAll by ${interaction.user.tag}`);
+            affected++;
+          } else if (!isMuting && member.voice.serverMute) {
+            await member.voice.setMute(false, `VC UnmuteAll by ${interaction.user.tag}`);
+            affected++;
+          }
+        } catch {}
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(isMuting ? BRAND.colors.warning : BRAND.colors.success)
+        .setTitle(isMuting ? "🔇 Voice Channel MuteAll Executed" : "🔊 Voice Channel UnmuteAll Executed")
+        .setDescription(
+          isMuting
+            ? `Server-muted **${affected}** member(s) in **#${targetChannel.name}**.`
+            : `Server-unmuted **${affected}** member(s) in **#${targetChannel.name}**.`
+        )
+        .addFields({
+          name: "Moderator",
+          value: `${interaction.user} (\`${interaction.user.tag}\`)`,
+          inline: true,
+        })
+        .setFooter({ text: BRAND.footer })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "moveall") {
+      const fromChannel = interaction.options.getChannel("from_channel", true) as VoiceBasedChannel;
+      const toChannel = interaction.options.getChannel("to_channel", true) as VoiceBasedChannel;
+
+      if (fromChannel.id === toChannel.id) {
+        await interaction.editReply({
+          content: "❌ The source and destination voice channels cannot be the same.",
+        });
+        return;
+      }
+
+      let moved = 0;
+      for (const [_, member] of fromChannel.members) {
+        try {
+          await member.voice.setChannel(toChannel, `VC MoveAll by ${interaction.user.tag}`);
+          moved++;
+        } catch {}
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(BRAND.colors.primary)
+        .setTitle("🔀 Voice Channel Bulk Move Completed")
+        .setDescription(`Moved **${moved}** member(s) from **#${fromChannel.name}** to **#${toChannel.name}**.`)
+        .addFields({
+          name: "Moderator",
+          value: `${interaction.user} (\`${interaction.user.tag}\`)`,
+          inline: true,
+        })
+        .setFooter({ text: BRAND.footer })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "clear") {
+      const amount = interaction.options.getInteger("amount") || 50;
+      const ch = interaction.channel;
+      if (!ch || !ch.isTextBased()) {
+        await interaction.editReply({ content: "❌ Cannot clear messages in this channel." });
+        return;
+      }
+
+      try {
+        const deleted = await (ch as any).bulkDelete(amount, true);
+        await interaction.editReply({
+          content: `🧹 Successfully cleared **${deleted.size}** messages from this channel.`,
+        });
+      } catch (err: any) {
+        await interaction.editReply({
+          content: `❌ Failed to clear messages: ${err.message || "Messages may be older than 14 days"}`,
+        });
+      }
+      return;
+    }
+
+    // Member-specific operations
     const targetUser = interaction.options.getUser("member", true);
     const reason = interaction.options.getString("reason") || "No reason provided by staff";
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+    if (sub === "unban") {
+      const removed = removeVcBan(interaction.guild.id, targetUser.id);
+      if (!removed) {
+        await interaction.editReply({
+          content: `⚠️ **${targetUser.tag}** is not in the active VC ban list.`,
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(BRAND.colors.success)
+        .setTitle("✅ Member Unbanned from Voice Channels")
+        .setDescription(`**${targetUser.tag}** has been removed from the VC ban list and can now join voice channels again.`)
+        .addFields({
+          name: "Staff Moderator",
+          value: `${interaction.user} (\`${interaction.user.tag}\`)`,
+          inline: true,
+        })
+        .setFooter({ text: BRAND.footer })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "ban") {
+      // Role hierarchy check
+      if (
+        member &&
+        interaction.guild.ownerId !== interaction.user.id &&
+        member.roles.highest.position >= (interaction.member as any)?.roles?.highest?.position
+      ) {
+        await interaction.editReply({
+          content: "❌ You cannot VC-ban this member because their role is equal to or higher than yours.",
+        });
+        return;
+      }
+
+      addVcBan({
+        guildId: interaction.guild.id,
+        userId: targetUser.id,
+        userTag: targetUser.tag,
+        staffId: interaction.user.id,
+        staffTag: interaction.user.tag,
+        reason,
+        timestamp: Date.now(),
+      });
+
+      let kickedNote = "";
+      if (member?.voice?.channel) {
+        const currentVc = member.voice.channel.name;
+        await member.voice.disconnect(`VC Ban: ${reason} (by ${interaction.user.tag})`).catch(() => {});
+        kickedNote = ` (and disconnected from #${currentVc})`;
+      }
+
+      addPunishment({
+        guildId: interaction.guild.id,
+        userId: targetUser.id,
+        username: targetUser.tag,
+        kind: "kick",
+        reason: `[VC Ban] ${reason}`,
+        durationDays: null,
+        staffId: interaction.user.id,
+        staffTag: interaction.user.tag,
+      });
+
+      // DM Notice
+      const dmEmbed = new EmbedBuilder()
+        .setColor(BRAND.colors.danger)
+        .setTitle("🚫 Voice Channel Ban Issued")
+        .setDescription(
+          `You have been banned from joining Voice Channels in **${interaction.guild.name}**.\n` +
+          `Whenever you attempt to connect, you will be automatically disconnected.`
+        )
+        .addFields(
+          { name: "Reason", value: `\`${reason}\``, inline: true },
+          { name: "Staff Moderator", value: `${interaction.user.tag}`, inline: true }
+        )
+        .setFooter({ text: `${BRAND.name} Voice Security` })
+        .setTimestamp();
+
+      await targetUser.send({ embeds: [dmEmbed] }).catch(() => {});
+
+      const embed = new EmbedBuilder()
+        .setColor(BRAND.colors.danger)
+        .setTitle("🚫 Member Banned from Voice Channels")
+        .setDescription(`**${targetUser.tag}** has been banned from joining all voice channels in this server${kickedNote}.`)
+        .addFields(
+          { name: "Staff Moderator", value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+          { name: "Reason", value: `\`${reason}\``, inline: true }
+        )
+        .setFooter({ text: `${BRAND.name} Voice Security • Use /vc unban to revoke` })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
 
     if (!member) {
       await interaction.editReply({
@@ -257,7 +651,7 @@ const command: Command = {
           await member.voice.setMute(true, `${reason} (by ${interaction.user.tag})`);
           const embed = new EmbedBuilder()
             .setColor(BRAND.colors.warning)
-            .setTitle("🔇 Member Server-Muted in Voice Channel")
+            .setTitle("🔇 Member Server-Muted in Voice")
             .setDescription(`**${member.user.tag}** has been server-muted in **#${member.voice.channel.name}**.`)
             .addFields(
               { name: "Staff Moderator", value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
@@ -269,7 +663,7 @@ const command: Command = {
           await interaction.editReply({ embeds: [embed] });
         } catch (err: any) {
           await interaction.editReply({
-            content: `❌ Failed to server-mute member: ${err.message || "Missing permissions"}`,
+            content: `❌ Failed to mute member: ${err.message || "Missing Mute Members permission"}`,
           });
         }
         break;
@@ -287,8 +681,8 @@ const command: Command = {
           await member.voice.setMute(false, `Unmuted by ${interaction.user.tag}`);
           const embed = new EmbedBuilder()
             .setColor(BRAND.colors.success)
-            .setTitle("🔊 Member Server-Unmuted in Voice Channel")
-            .setDescription(`**${member.user.tag}** is now unmuted in **#${member.voice.channel.name}**.`)
+            .setTitle("🔊 Member Server-Unmuted in Voice")
+            .setDescription(`**${member.user.tag}** has been unmuted in **#${member.voice.channel.name}**.`)
             .addFields({
               name: "Staff Moderator",
               value: `${interaction.user} (\`${interaction.user.tag}\`)`,
@@ -300,7 +694,7 @@ const command: Command = {
           await interaction.editReply({ embeds: [embed] });
         } catch (err: any) {
           await interaction.editReply({
-            content: `❌ Failed to server-unmute member: ${err.message || "Missing permissions"}`,
+            content: `❌ Failed to unmute member: ${err.message || "Missing Mute Members permission"}`,
           });
         }
         break;
@@ -318,7 +712,7 @@ const command: Command = {
           await member.voice.setDeaf(true, `${reason} (by ${interaction.user.tag})`);
           const embed = new EmbedBuilder()
             .setColor(BRAND.colors.warning)
-            .setTitle("🔇 Member Server-Deafened in Voice Channel")
+            .setTitle("🔇 Member Server-Deafened in Voice")
             .setDescription(`**${member.user.tag}** has been server-deafened in **#${member.voice.channel.name}**.`)
             .addFields(
               { name: "Staff Moderator", value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
@@ -330,7 +724,7 @@ const command: Command = {
           await interaction.editReply({ embeds: [embed] });
         } catch (err: any) {
           await interaction.editReply({
-            content: `❌ Failed to server-deafen member: ${err.message || "Missing permissions"}`,
+            content: `❌ Failed to deafen member: ${err.message || "Missing Deafen Members permission"}`,
           });
         }
         break;
@@ -348,8 +742,8 @@ const command: Command = {
           await member.voice.setDeaf(false, `Undeafened by ${interaction.user.tag}`);
           const embed = new EmbedBuilder()
             .setColor(BRAND.colors.success)
-            .setTitle("🎧 Member Server-Undeafened")
-            .setDescription(`**${member.user.tag}** has been server-undeafened in **#${member.voice.channel.name}**.`)
+            .setTitle("🔊 Member Server-Undeafened in Voice")
+            .setDescription(`**${member.user.tag}** has been undeafened in **#${member.voice.channel.name}**.`)
             .addFields({
               name: "Staff Moderator",
               value: `${interaction.user} (\`${interaction.user.tag}\`)`,
@@ -361,7 +755,7 @@ const command: Command = {
           await interaction.editReply({ embeds: [embed] });
         } catch (err: any) {
           await interaction.editReply({
-            content: `❌ Failed to undeafen member: ${err.message || "Missing permissions"}`,
+            content: `❌ Failed to undeafen member: ${err.message || "Missing Deafen Members permission"}`,
           });
         }
         break;
@@ -376,7 +770,7 @@ const command: Command = {
         }
 
         const targetChannel = interaction.options.getChannel("channel", true) as VoiceBasedChannel;
-        if (member.voice.channel.id === targetChannel.id) {
+        if (member.voice.channelId === targetChannel.id) {
           await interaction.editReply({
             content: `⚠️ **${member.user.tag}** is already inside **#${targetChannel.name}**.`,
           });
@@ -442,7 +836,7 @@ const command: Command = {
             username: member.user.tag,
             kind: "timeout",
             reason: `[VC Infraction] ${reason}`,
-            durationDays: Math.round(durationMs / (24 * 60 * 60 * 1000) * 10) / 10,
+            durationDays: Math.round((durationMs / (24 * 60 * 60 * 1000)) * 10) / 10,
             staffId: interaction.user.id,
             staffTag: interaction.user.tag,
           });

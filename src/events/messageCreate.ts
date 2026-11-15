@@ -8,6 +8,7 @@ import { findTicketByChannel } from "../lib/store";
 import { BRAND } from "../lib/brand";
 import { cacheMessage, logCommandExecution, logMessageSent } from "../lib/loggingStore";
 import { executeAutoModCheck } from "../lib/automodEngine";
+import { handleTextModeration } from "../lib/textModeration";
 
 // Message deduplication cache: messageId -> boolean
 const handledMessageIds = new Set<string>();
@@ -54,6 +55,14 @@ export default {
 
     // Carl-bot style Message Sent audit logging (logs all messages sent in the server to # messege)
     logMessageSent(message);
+
+    // ─────────────────────────────────────────────────────────────
+    // TEXT-BASED MODERATION (e.g. "warn @user reason", "!warn @user", replying "warn reason")
+    // ─────────────────────────────────────────────────────────────
+    const isTextModHandled = await handleTextModeration(message);
+    if (isTextModHandled) {
+      return;
+    }
 
     // ─────────────────────────────────────────────────────────────
     // COMMAND AUDIT LOGGING (Prefix commands: !, ?, ., -, +, $, ;, /, etc.)

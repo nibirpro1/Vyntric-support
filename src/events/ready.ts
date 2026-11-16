@@ -31,10 +31,10 @@ export default {
       }
     }
 
-    // 2. Update bot Global Username to Vyntric
-    if (client.user && client.user.username !== "Vyntric") {
-      client.user.setUsername("Vyntric").then(() => {
-        console.log("[ready:username] Successfully changed username to Vyntric.");
+    // 2. Update bot Global Username to VyntricBD
+    if (client.user && client.user.username !== "VyntricBD") {
+      client.user.setUsername("VyntricBD").then(() => {
+        console.log("[ready:username] Successfully changed username to VyntricBD.");
       }).catch((err: any) => {
         console.warn("[ready:username] Could not set global username (may be rate-limited or taken):", err.message);
       });
@@ -46,9 +46,9 @@ export default {
         const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
         if (me) {
           console.log(`[ready] Bot ${client.user?.tag} in ${guild.name} (ID: ${guild.id}) - Nickname: '${me.nickname}', Roles: [${me.roles.cache.map(r => r.name).join(", ")}]`);
-          if (me.nickname !== "Vyntric" && me.manageable) {
-            await me.setNickname("Vyntric");
-            console.log(`[ready:nickname] Set server nickname to 'Vyntric' in ${guild.name}`);
+          if (me.nickname !== "VyntricBD" && me.manageable) {
+            await me.setNickname("VyntricBD");
+            console.log(`[ready:nickname] Set server nickname to 'VyntricBD' in ${guild.name}`);
           }
 
           // Check if there is a bot role (e.g. "Bot", "Bots", "BOTS", etc.)
@@ -77,7 +77,7 @@ export default {
 
     client.user?.setPresence({
       status: "online",
-      activities: [{ name: "🛡️ /help • Vyntric Security", type: ActivityType.Watching }],
+      activities: [{ name: "🛡️ /help • VyntricBD Security", type: ActivityType.Watching }],
     });
 
     // Initialize active giveaways and resume timers

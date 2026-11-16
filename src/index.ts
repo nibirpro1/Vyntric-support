@@ -23,7 +23,7 @@ lockServer.listen(LOCK_PORT, "127.0.0.1");
 const client = new VyntricClient({
   presence: {
     status: "online",
-    activities: [{ name: "🛡️ Vyntric • /help", type: ActivityType.Watching }],
+    activities: [{ name: "🛡️ VyntricBD • /help", type: ActivityType.Watching }],
   },
   intents: [
     GatewayIntentBits.Guilds,

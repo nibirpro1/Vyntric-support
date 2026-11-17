@@ -39,7 +39,7 @@ export default {
             auditLogs.entries.find((e) => e.targetId === member.id) ||
             auditLogs.entries.first();
 
-          if (entry && entry.executor && !isImmune(member.guild, entry.executor.id)) {
+          if (entry && entry.executor && !(await isImmune(member.guild, entry.executor.id))) {
             console.warn(
               `[antinuke:antibot] Unauthorized bot add detected: ${member.user.tag} added by ${entry.executor.tag}`
             );

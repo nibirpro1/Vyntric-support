@@ -25,7 +25,7 @@ export default {
           (e) => e.targetId === member.id && Date.now() - e.createdTimestamp < 8000
         );
 
-        if (entry && entry.executor && !isImmune(member.guild, entry.executor.id)) {
+        if (entry && entry.executor && !(await isImmune(member.guild, entry.executor.id))) {
           const exceeded = checkRateLimit(
             member.guild.id,
             entry.executor.id,

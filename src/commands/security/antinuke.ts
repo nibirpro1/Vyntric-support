@@ -2,6 +2,7 @@ import {
   ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  GuildMember,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -13,6 +14,7 @@ import {
   getAntiNukeConfig,
   updateAntiNukeConfig,
 } from "../../lib/antinukeStore";
+import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
@@ -83,25 +85,47 @@ const command: Command = {
     .addSubcommandGroup((group) =>
       group
         .setName("whitelist")
-        .setDescription("Manage trusted users exempt from anti-nuke triggers")
+        .setDescription("Manage trusted users and roles exempt from anti-nuke triggers")
         .addSubcommand((sub) =>
           sub
             .setName("add")
-            .setDescription("Add a trusted user to the anti-nuke whitelist")
+            .setDescription("Add a trusted user or role to the anti-nuke whitelist")
             .addUserOption((opt) =>
-              opt.setName("user").setDescription("The user to whitelist").setRequired(true)
+              opt.setName("user").setDescription("User to whitelist").setRequired(false)
+            )
+            .addRoleOption((opt) =>
+              opt.setName("role").setDescription("Role to whitelist").setRequired(false)
             )
         )
         .addSubcommand((sub) =>
           sub
             .setName("remove")
-            .setDescription("Remove a user from the anti-nuke whitelist")
+            .setDescription("Remove a user or role from the anti-nuke whitelist")
             .addUserOption((opt) =>
-              opt.setName("user").setDescription("The user to remove").setRequired(true)
+              opt.setName("user").setDescription("User to remove from whitelist").setRequired(false)
+            )
+            .addRoleOption((opt) =>
+              opt.setName("role").setDescription("Role to remove from whitelist").setRequired(false)
             )
         )
         .addSubcommand((sub) =>
-          sub.setName("list").setDescription("List all whitelisted users")
+          sub.setName("list").setDescription("List all whitelisted users and roles")
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName("clear")
+            .setDescription("Clear whitelisted users, roles, or all from the whitelist")
+            .addStringOption((opt) =>
+              opt
+                .setName("type")
+                .setDescription("Target category to clear")
+                .setRequired(true)
+                .addChoices(
+                  { name: "👥 Whitelisted Users Only", value: "users" },
+                  { name: "🛡️ Whitelisted Roles Only", value: "roles" },
+                  { name: "💥 All (Users & Roles)", value: "all" }
+                )
+            )
         )
     )
     .addSubcommandGroup((group) =>
@@ -136,14 +160,21 @@ const command: Command = {
     const config = getAntiNukeConfig(guildId);
     const userId = interaction.user.id;
 
-    // Security check: Only Server Owner or Extra Owners can access Anti-Nuke settings
+    const member =
+      interaction.member instanceof GuildMember
+        ? interaction.member
+        : await interaction.guild.members.fetch(userId).catch(() => null);
+
+    // Security check: Only Server Owner, Extra Owners, or staff with Security role
     const isAuthorized =
-      interaction.guild.ownerId === userId || config.extraOwners.includes(userId);
+      interaction.guild.ownerId === userId ||
+      config.extraOwners.includes(userId) ||
+      (member ? hasFeaturePermission(member, "security") : false);
 
     if (!isAuthorized) {
       await interaction.reply({
         content:
-          "⛔ **Access Denied:** Only the **Server Owner** and configured **Extra Owners** have permission to configure Anti-Nuke security.",
+          "⛔ **Access Denied:** Only the **Server Owner**, configured **Extra Owners**, or staff with the **`🔐 Security Perms`** role have permission to configure Anti-Nuke security.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -157,58 +188,164 @@ const command: Command = {
     // ─────────────────────────────────────────────────────────────
     if (group === "whitelist") {
       if (sub === "add") {
-        const target = interaction.options.getUser("user", true);
-        if (config.whitelistedUsers.includes(target.id)) {
+        const user = interaction.options.getUser("user");
+        const role = interaction.options.getRole("role");
+
+        if (!user && !role) {
           await interaction.reply({
-            content: `ℹ️ <@${target.id}> is already on the Anti-Nuke whitelist.`,
+            content:
+              "⚠️ **Missing Target:** Please specify either a **user** (`user:@User`) or a **role** (`role:@Role`) to add to the Anti-Nuke whitelist.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        const updated = updateAntiNukeConfig(guildId, {
-          whitelistedUsers: [...config.whitelistedUsers, target.id],
+        const changes: string[] = [];
+        let newUsers = [...config.whitelistedUsers];
+        let newRoles = [...config.whitelistedRoles];
+
+        if (user) {
+          if (newUsers.includes(user.id)) {
+            changes.push(`ℹ️ <@${user.id}> is already on the Anti-Nuke user whitelist.`);
+          } else {
+            newUsers.push(user.id);
+            changes.push(`✅ Added user <@${user.id}> (\`${user.tag}\`) to the Anti-Nuke whitelist.`);
+          }
+        }
+
+        if (role) {
+          if (role.id === interaction.guild.id) {
+            changes.push(`⚠️ Cannot whitelist the \`@everyone\` role.`);
+          } else if (newRoles.includes(role.id)) {
+            changes.push(`ℹ️ <@&${role.id}> is already on the Anti-Nuke role whitelist.`);
+          } else {
+            newRoles.push(role.id);
+            changes.push(`✅ Added role <@&${role.id}> (\`${role.name}\`) to the Anti-Nuke whitelist.`);
+          }
+        }
+
+        updateAntiNukeConfig(guildId, {
+          whitelistedUsers: newUsers,
+          whitelistedRoles: newRoles,
         });
 
-        await interaction.reply({
-          content: `✅ Successfully added <@${target.id}> to the **Anti-Nuke Whitelist**. They are now immune from anti-nuke rate-limit triggers.`,
-        });
+        const embed = new EmbedBuilder()
+          .setColor(BRAND.colors.success)
+          .setTitle("🛡️ Anti-Nuke Whitelist Updated")
+          .setDescription(changes.join("\n\n"))
+          .setFooter({
+            text: `${BRAND.name} Security Shield • Whitelisted users/role members are immune from Anti-Nuke triggers`,
+          })
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
         return;
       }
 
       if (sub === "remove") {
-        const target = interaction.options.getUser("user", true);
-        if (!config.whitelistedUsers.includes(target.id)) {
+        const user = interaction.options.getUser("user");
+        const role = interaction.options.getRole("role");
+
+        if (!user && !role) {
           await interaction.reply({
-            content: `⚠️ <@${target.id}> is not in the whitelist.`,
+            content:
+              "⚠️ **Missing Target:** Please specify either a **user** (`user:@User`) or a **role** (`role:@Role`) to remove from the Anti-Nuke whitelist.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
+        const changes: string[] = [];
+        let newUsers = [...config.whitelistedUsers];
+        let newRoles = [...config.whitelistedRoles];
+
+        if (user) {
+          if (!newUsers.includes(user.id)) {
+            changes.push(`⚠️ User <@${user.id}> is not in the Anti-Nuke whitelist.`);
+          } else {
+            newUsers = newUsers.filter((id) => id !== user.id);
+            changes.push(`✅ Removed user <@${user.id}> from the Anti-Nuke whitelist.`);
+          }
+        }
+
+        if (role) {
+          if (!newRoles.includes(role.id)) {
+            changes.push(`⚠️ Role <@&${role.id}> is not in the Anti-Nuke whitelist.`);
+          } else {
+            newRoles = newRoles.filter((id) => id !== role.id);
+            changes.push(`✅ Removed role <@&${role.id}> from the Anti-Nuke whitelist.`);
+          }
+        }
+
         updateAntiNukeConfig(guildId, {
-          whitelistedUsers: config.whitelistedUsers.filter((id) => id !== target.id),
+          whitelistedUsers: newUsers,
+          whitelistedRoles: newRoles,
         });
 
-        await interaction.reply({
-          content: `✅ Successfully removed <@${target.id}> from the **Anti-Nuke Whitelist**.`,
-        });
+        const embed = new EmbedBuilder()
+          .setColor(BRAND.colors.primary)
+          .setTitle("🛡️ Anti-Nuke Whitelist Updated")
+          .setDescription(changes.join("\n\n"))
+          .setFooter({ text: `${BRAND.name} Security Shield` })
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
         return;
       }
 
       if (sub === "list") {
-        const list =
+        const usersList =
           config.whitelistedUsers.length > 0
             ? config.whitelistedUsers.map((id) => `• <@${id}> (\`${id}\`)`).join("\n")
             : "_No whitelisted users configured._";
 
+        const rolesList =
+          config.whitelistedRoles.length > 0
+            ? config.whitelistedRoles.map((id) => `• <@&${id}> (\`${id}\`)`).join("\n")
+            : "_No whitelisted roles configured._";
+
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
-          .setTitle("🛡️ Anti-Nuke Whitelisted Users")
-          .setDescription(list)
-          .setFooter({ text: `${BRAND.name} Security System` });
+          .setTitle("🛡️ Anti-Nuke Immunity Whitelist")
+          .setDescription(
+            "Members holding whitelisted roles or users explicitly whitelisted bypass anti-nuke rate-limits and actions."
+          )
+          .addFields(
+            {
+              name: `👥 Whitelisted Users (${config.whitelistedUsers.length})`,
+              value: usersList,
+              inline: false,
+            },
+            {
+              name: `🛡️ Whitelisted Roles (${config.whitelistedRoles.length})`,
+              value: rolesList,
+              inline: false,
+            }
+          )
+          .setFooter({
+            text: `${BRAND.name} Security Shield • Server Owner & Extra Owners are always immune`,
+          })
+          .setTimestamp();
 
         await interaction.reply({ embeds: [embed] });
+        return;
+      }
+
+      if (sub === "clear") {
+        const type = interaction.options.getString("type", true);
+        let msg = "";
+        if (type === "users") {
+          updateAntiNukeConfig(guildId, { whitelistedUsers: [] });
+          msg = "🧹 Cleared all **whitelisted users** from Anti-Nuke protection.";
+        } else if (type === "roles") {
+          updateAntiNukeConfig(guildId, { whitelistedRoles: [] });
+          msg = "🧹 Cleared all **whitelisted roles** from Anti-Nuke protection.";
+        } else {
+          updateAntiNukeConfig(guildId, { whitelistedUsers: [], whitelistedRoles: [] });
+          msg = "💥 Cleared all **whitelisted users and roles** from Anti-Nuke protection.";
+        }
+
+        await interaction.reply({ content: `✅ ${msg}` });
         return;
       }
     }
@@ -429,12 +566,20 @@ const command: Command = {
             inline: true,
           },
           {
-            name: "👥 Whitelisted Members",
+            name: "👥 Whitelisted Users",
             value:
               config.whitelistedUsers.length > 0
                 ? config.whitelistedUsers.map((id) => `<@${id}>`).join(", ")
-                : "_No whitelisted members_",
-            inline: false,
+                : "_No whitelisted users_",
+            inline: true,
+          },
+          {
+            name: "🛡️ Whitelisted Roles",
+            value:
+              config.whitelistedRoles.length > 0
+                ? config.whitelistedRoles.map((id) => `<@&${id}>`).join(", ")
+                : "_No whitelisted roles_",
+            inline: true,
           }
         )
         .setFooter({

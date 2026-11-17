@@ -482,7 +482,8 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             value:
               "• Prevents non-whitelisted members from inviting malicious bots.\n" +
               "• Unauthorized bots are instantly kicked and inviter is punished.\n" +
-              "• Configure with `/antinuke whitelist user:@user`",
+              "• Whitelist trusted users/roles: `/antinuke whitelist add user:@user` or `role:@role`\n" +
+              "• View active immunity lists: `/antinuke whitelist list`",
             inline: false,
           },
           {

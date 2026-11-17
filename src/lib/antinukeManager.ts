@@ -15,7 +15,47 @@ import { BRAND } from "./brand";
 // Sliding-window action tracker: Map<key, timestamp[]>
 const actionTracker = new Map<string, number[]>();
 
-export function isImmune(guild: Guild, userId: string): boolean {
+/**
+ * Synchronous immunity check for in-memory / cached members.
+ */
+export function isImmuneSync(
+  guild: Guild,
+  userId: string,
+  member?: GuildMember | null
+): boolean {
+  if (!userId) return true;
+  // Bot itself is immune
+  if (guild.client.user && userId === guild.client.user.id) return true;
+  // Server Owner is always immune
+  if (guild.ownerId === userId) return true;
+
+  const config = getAntiNukeConfig(guild.id);
+  // Extra owners are immune
+  if (config.extraOwners.includes(userId)) return true;
+  // Whitelisted users are immune
+  if (config.whitelistedUsers.includes(userId)) return true;
+
+  // Check whitelisted roles with cached member
+  if (config.whitelistedRoles.length > 0) {
+    const targetMember = member || guild.members.cache.get(userId);
+    if (targetMember && config.whitelistedRoles.some((rId) => targetMember.roles.cache.has(rId))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Robust asynchronous immunity check.
+ * Checks Bot, Server Owner, Extra Owners, Whitelisted Users, and Whitelisted Roles.
+ * If the member is not in memory cache, safely fetches the member from Discord API to prevent false punishments.
+ */
+export async function isImmune(
+  guild: Guild,
+  userId: string,
+  member?: GuildMember | null
+): Promise<boolean> {
   if (!userId) return true;
   // Bot itself is immune
   if (guild.client.user && userId === guild.client.user.id) return true;
@@ -30,8 +70,11 @@ export function isImmune(guild: Guild, userId: string): boolean {
 
   // Check whitelisted roles
   if (config.whitelistedRoles.length > 0) {
-    const member = guild.members.cache.get(userId);
-    if (member && member.roles.cache.some((r) => config.whitelistedRoles.includes(r.id))) {
+    let targetMember: GuildMember | null | undefined = member || guild.members.cache.get(userId);
+    if (!targetMember) {
+      targetMember = await guild.members.fetch(userId).catch(() => null);
+    }
+    if (targetMember && config.whitelistedRoles.some((rId) => targetMember.roles.cache.has(rId))) {
       return true;
     }
   }
@@ -260,7 +303,7 @@ export async function handleAntiNukeEvent(options: {
     const executor = entry.executor;
 
     // Check immunity
-    if (isImmune(guild, executor.id)) return;
+    if (await isImmune(guild, executor.id)) return;
 
     // Check rate limit if applicable
     if ("limit" in feature && "windowSeconds" in feature) {

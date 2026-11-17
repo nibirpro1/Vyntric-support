@@ -94,5 +94,13 @@ export default {
     } catch (err) {
       console.error("[dateChannel:init:error]", err);
     }
+
+    // Initialize anti-raid auto-lockdown expiration heartbeat
+    try {
+      const { initAntiRaid } = require("../lib/antiraidManager");
+      initAntiRaid(client);
+    } catch (err) {
+      console.error("[antiraid:init:error]", err);
+    }
   },
 };

@@ -12,6 +12,7 @@ import {
 import { BRAND } from "../lib/brand";
 import { getAntiNukeConfig } from "../lib/antinukeStore";
 import { isImmune, executePunishment, sendAntiNukeAlert } from "../lib/antinukeManager";
+import { handleMemberJoin as handleAntiRaidMemberJoin } from "../lib/antiraidManager";
 
 const DEFAULT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-welcome.gif");
 const DEFAULT_CHAT_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-chat-welcome.gif");
@@ -70,6 +71,20 @@ export default {
           console.error("[antinuke:antibot:error]", err);
         }
       }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 0.5. ANTI-RAID: MASS JOIN & ACCOUNT AGE PROTECTION
+    // ─────────────────────────────────────────────────────────────
+    try {
+      await handleAntiRaidMemberJoin(member);
+    } catch (err: any) {
+      console.error("[antiraid:memberJoin:error]", err);
+    }
+
+    // If member was removed or left during anti-raid, abort welcome
+    if (!member.guild.members.cache.has(member.id)) {
+      return;
     }
 
     const config = getWelcomeConfig(member.guild.id);

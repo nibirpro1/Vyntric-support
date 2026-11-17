@@ -10,6 +10,7 @@ import { cacheMessage, logCommandExecution, logMessageSent } from "../lib/loggin
 import { executeAutoModCheck } from "../lib/automodEngine";
 import { handleTextModeration } from "../lib/textModeration";
 import { handleHelpTextCommand } from "../lib/helpDashboard";
+import { handleAntiRaidTextCommand, handleRaidMessage } from "../lib/antiraidManager";
 
 // Message deduplication cache: messageId -> boolean
 const handledMessageIds = new Set<string>();
@@ -62,6 +63,14 @@ export default {
     // ─────────────────────────────────────────────────────────────
     const isTextModHandled = await handleTextModeration(message);
     if (isTextModHandled) {
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // ANTI-RAID TEXT CONTROLS (lockdown, unlock, antiraid)
+    // ─────────────────────────────────────────────────────────────
+    const isAntiRaidHandled = await handleAntiRaidTextCommand(message);
+    if (isAntiRaidHandled) {
       return;
     }
 
@@ -137,6 +146,14 @@ export default {
           fullCommand: trimmed,
         });
       }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 0.8. ANTI-RAID MESSAGE SPAM / BURST / MENTION SHIELD
+    // ─────────────────────────────────────────────────────────────
+    const isRaidSpam = await handleRaidMessage(message);
+    if (isRaidSpam) {
+      return;
     }
 
     // ─────────────────────────────────────────────────────────────

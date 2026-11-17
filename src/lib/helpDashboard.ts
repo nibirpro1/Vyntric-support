@@ -83,6 +83,11 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             name: "9. 🔐 Anti-Nuke & Server Security",
             value: "Automatic protection against unauthorized bot additions, channel deletions, and mass actions.",
             inline: false,
+          },
+          {
+            name: "10. 🚨 Anti-Raid & Emergency Lockdown",
+            value: "Mass-join raid detection, account age gate (< 3d), anti-mention raid, `/antiraid`, and `/lockdown`.",
+            inline: false,
           }
         )
         .setFooter({ text: `${BRAND.name} • Administrator System Guide` })
@@ -479,6 +484,56 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           }
         )
         .setFooter({ text: "Anti-Nuke Protection Active" })
+        .setTimestamp(),
+  },
+  {
+    id: "antiraid",
+    name: "Anti-Raid & Server Lockdown",
+    emoji: "🚨",
+    shortDesc: "Mass join detection, account age gate, and emergency lockdown",
+    embed: (guild: Guild) =>
+      new EmbedBuilder()
+        .setColor(BRAND.colors.danger)
+        .setTitle("🚨 Anti-Raid Shield & Server Emergency Lockdown")
+        .setDescription(
+          `Automated, high-velocity defense shield to neutralize raid attacks before they damage ${guild.name}.`
+        )
+        .addFields(
+          {
+            name: "⚡ Mass-Join Detection",
+            value:
+              "• Detects rapid join waves (e.g. 5+ accounts in 10s).\n" +
+              "• Automatically executes timeouts on all raiders.\n" +
+              "• Dispatches high-priority emergency alerts with 1-click control buttons.",
+            inline: false,
+          },
+          {
+            name: "📅 Account Age Gate (< 3 Days)",
+            value:
+              "• Automatically flags and restricts brand-new accounts created in the last 24-72 hours.\n" +
+              "• Prevents disposable raid accounts from spamming channels.",
+            inline: false,
+          },
+          {
+            name: "🔒 Emergency Lockdown Commands",
+            value:
+              "• `/antiraid lockdown action:lock [duration]` - Locks down all public channels.\n" +
+              "• `/lockdown scope:server` or `/lockdown scope:channel` - Instant lockdown.\n" +
+              "• `/unlock scope:server` or `/unlock scope:channel` - Lifts lockdown.\n" +
+              "• **Text Trigger:** Type `lockdown` or `unlock` in chat (Administrators / Security staff only).",
+            inline: false,
+          },
+          {
+            name: "🛡️ Configuration & Controls",
+            value:
+              "• `/antiraid status` - View live shield status and lockdown states.\n" +
+              "• `/antiraid enable` / `/antiraid disable` - Quick toggle.\n" +
+              "• `/antiraid config` - Tune join thresholds, min account age, and timeout durations.\n" +
+              "• `/antiraid whitelist` - Exempt trusted staff or VIP roles.",
+            inline: false,
+          }
+        )
+        .setFooter({ text: `${BRAND.footer} • Anti-Raid Defense` })
         .setTimestamp(),
   },
 ];

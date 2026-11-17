@@ -2,6 +2,7 @@ import {
   ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  GuildMember,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -14,6 +15,7 @@ import { getAutoModConfig } from "../../lib/automodStore";
 import { formatPunishmentLabel } from "../../lib/automodEngine";
 import { addVcBan, removeVcBan, getGuildVcBans, isUserVcBanned } from "../../lib/vcBanStore";
 import { getVc247Status, joinVc247, leaveVc247 } from "../../lib/vc247Manager";
+import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
@@ -410,19 +412,45 @@ const command: Command = {
     }
 
     const staffMember = interaction.member as any;
-    const canModVc =
+    const isOwnerOrAdmin =
       interaction.guild.ownerId === interaction.user.id ||
-      staffMember?.permissions?.has(PermissionFlagsBits.ModerateMembers) ||
-      staffMember?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
       staffMember?.permissions?.has(PermissionFlagsBits.Administrator) ||
+      staffMember?.permissions?.has(PermissionFlagsBits.ManageGuild);
+
+    const hasMoveRole =
+      isOwnerOrAdmin ||
+      staffMember?.permissions?.has(PermissionFlagsBits.MoveMembers) ||
+      staffMember?.roles?.cache?.has("1572249183832768662") ||
+      (staffMember instanceof GuildMember && hasFeaturePermission(staffMember, "move")) ||
+      staffMember?.roles?.cache?.some(
+        (r: any) => r.name.toLowerCase() === "move" || r.name.toLowerCase().includes("move perms")
+      );
+
+    const canModVc =
+      isOwnerOrAdmin ||
+      staffMember?.permissions?.has(PermissionFlagsBits.ModerateMembers) ||
       staffMember?.roles?.cache?.has("1571258783471243304") ||
+      (staffMember instanceof GuildMember && hasFeaturePermission(staffMember, "vcmod")) ||
       staffMember?.roles?.cache?.some((r: any) => r.name.toLowerCase().includes("vc mod"));
 
-    if (!canModVc) {
-      await interaction.editReply({
-        content: "❌ **Permission Denied:** You need the `🎙️ VC Mod Perms` role or Moderate Members permission to use this command.",
-      });
-      return;
+    // If sub is specifically "move" or "moveall", members with the Move role or MoveMembers permission are authorized
+    const isMoveSubcommand = sub === "move" || sub === "moveall";
+    if (isMoveSubcommand) {
+      if (!canModVc && !hasMoveRole) {
+        await interaction.editReply({
+          content:
+            "❌ **Permission Denied:** You need the `🔀 Move Perms` role, `🎙️ VC Mod Perms` role, or Move Members permission to use this command.",
+        });
+        return;
+      }
+    } else {
+      if (!canModVc) {
+        await interaction.editReply({
+          content:
+            "❌ **Permission Denied:** You need the `🎙️ VC Mod Perms` role or Moderate Members permission to use this command.",
+        });
+        return;
+      }
     }
 
     // Channel-level operations

@@ -10,6 +10,7 @@ export type FeaturePermission =
   | "announce"
   | "giveaway"
   | "vcmod"
+  | "move"
   | "mention"
   | "automod_bypass"
   | "mod"
@@ -73,6 +74,14 @@ export const PERMISSION_ROLE_DEFS: PermissionRoleDef[] = [
     emoji: "🎙️",
     color: 0xe67e22,
     description: "Moderate Voice Channels (/vc kick, /vc mute, /vc timeout, /vc move)",
+  },
+  {
+    key: "move",
+    name: "🔀 Move Perms",
+    defaultId: "1572249183832768662",
+    emoji: "🔀",
+    color: 0x3498db,
+    description: "Move members between Voice Channels (/vc move, /vc moveall)",
   },
   {
     key: "mention",
@@ -154,12 +163,20 @@ function persist() {
 
 export function getGuildPermissionRoles(guildId: string): Record<string, string> {
   if (!store[guildId]) {
-    const defaults: Record<string, string> = {};
-    for (const def of PERMISSION_ROLE_DEFS) {
-      defaults[def.key] = def.defaultId;
+    store[guildId] = {};
+  }
+  let modified = false;
+  for (const def of PERMISSION_ROLE_DEFS) {
+    if (!store[guildId][def.key]) {
+      store[guildId][def.key] = def.defaultId;
+      modified = true;
     }
-    defaults["announce"] = "1571405116869840926";
-    store[guildId] = defaults;
+  }
+  if (!store[guildId]["announce"]) {
+    store[guildId]["announce"] = "1571405116869840926";
+    modified = true;
+  }
+  if (modified) {
     persist();
   }
   return store[guildId];
@@ -218,6 +235,7 @@ export async function resolveFeatureRole(
     const created = await guild.roles.create({
       name: def.name,
       color: def.color,
+      permissions: feature === "move" ? [PermissionFlagsBits.MoveMembers] : undefined,
       reason: `Auto-created feature permission role for ${def.name}`,
     });
     setGuildPermissionRole(guild.id, feature, created.id);
@@ -237,6 +255,7 @@ export async function resolveFeatureRole(
 export function hasFeaturePermission(member: GuildMember, feature: FeaturePermission): boolean {
   if (member.id === member.guild.ownerId) return true;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (feature === "move" && member.permissions.has(PermissionFlagsBits.MoveMembers)) return true;
 
   const currentMap = getGuildPermissionRoles(member.guild.id);
   const effectiveKey = feature === "announce" ? "announce_server" : feature;
@@ -249,7 +268,11 @@ export function hasFeaturePermission(member: GuildMember, feature: FeaturePermis
 
   // Fallback match by role name
   if (def) {
-    const role = member.roles.cache.find((r) => r.name.toLowerCase() === def.name.toLowerCase());
+    const role = member.roles.cache.find(
+      (r) =>
+        r.name.toLowerCase() === def.name.toLowerCase() ||
+        (feature === "move" && r.name.toLowerCase() === "move")
+    );
     if (role) return true;
   }
 

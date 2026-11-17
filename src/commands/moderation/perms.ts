@@ -40,6 +40,7 @@ const command: Command = {
               { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
+              { name: "🔀 VC Move (🔀 Move Perms)", value: "move" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
               { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" },
               { name: "⚖️ Warn & Mod (⚖️ Warn & Mod Perms)", value: "mod" },
@@ -70,6 +71,7 @@ const command: Command = {
               { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
+              { name: "🔀 VC Move (🔀 Move Perms)", value: "move" },
               { name: "🔔 Mass Mentions (🔔 Mention Perms)", value: "mention" },
               { name: "🛡️ AutoMod Bypass (🛡️ AutoMod Bypass)", value: "automod_bypass" },
               { name: "⚖️ Warn & Mod (⚖️ Warn & Mod Perms)", value: "mod" },
@@ -105,6 +107,7 @@ const command: Command = {
               { name: "⚔️ UHC Announce", value: "announce_uhc" },
               { name: "🎁 Giveaways", value: "giveaway" },
               { name: "🎙️ Voice Mod", value: "vcmod" },
+              { name: "🔀 VC Move", value: "move" },
               { name: "🔔 Mass Mentions", value: "mention" },
               { name: "🛡️ AutoMod Bypass", value: "automod_bypass" },
               { name: "⚖️ Warn & Mod", value: "mod" },
@@ -114,7 +117,7 @@ const command: Command = {
         )
     )
     .addSubcommand((sub) =>
-      sub.setName("roles").setDescription("Display all 11 modular feature permission roles and their status")
+      sub.setName("roles").setDescription("Display all 12 modular feature permission roles and their status")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {

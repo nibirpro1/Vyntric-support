@@ -41,7 +41,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         .addFields(
           {
             name: "1. 🛡️ Modular Permission Roles (`/perms`)",
-            value: "11 dedicated feature roles to grant permissions to staff without making them Administrator.",
+            value: "12 dedicated feature roles to grant permissions to staff without making them Administrator.",
             inline: false,
           },
           {
@@ -103,14 +103,14 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         .setColor(0x3498db)
         .setTitle("🛡️ Modular Feature Permission Roles System")
         .setDescription(
-          `Instead of giving full Administrator access to staff, you can assign these **11 dedicated roles** to grant access to individual features!\n\n` +
+          `Instead of giving full Administrator access to staff, you can assign these **12 dedicated roles** to grant access to individual features!\n\n` +
           `**Commands to manage permissions:**\n` +
           `• \`/perms give member:@user feature:<name>\` - Grant permission\n` +
           `• \`/perms remove member:@user feature:<name>\` - Revoke permission\n` +
           `• \`/perms check member:@user\` - View all permissions for a user\n` +
           `• \`/perms list feature:<name>\` - See who has this permission\n` +
-          `• \`/perms roles\` - View all 11 permission roles\n\n` +
-          `**All 11 Dedicated Roles in ${guild.name}:**`
+          `• \`/perms roles\` - View all 12 permission roles\n\n` +
+          `**All 12 Dedicated Roles in ${guild.name}:**`
         );
 
       for (const def of PERMISSION_ROLE_DEFS) {
@@ -362,9 +362,17 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             inline: false,
           },
           {
+            name: "🔀 Voice Channel Move Perms",
+            value:
+              "• `/vc move member:@user channel:#vc` - Move a member to another Voice Channel.\n" +
+              "• `/vc moveall from_channel:#vc to_channel:#vc` - Bulk move all members from one VC to another.\n" +
+              "• Role **`🔀 Move Perms`** (`1572249183832768662`) has strictly `MoveMembers` permission only — safe to give to event hosts or organizers without granting kick/mute/ban permissions!",
+            inline: false,
+          },
+          {
             name: "🛡️ Required Role",
             value:
-              "Administrators or members with the **`🎙️ VC Mod Perms`** role (`1571258783471243304`).",
+              "Administrators, members with the **`🎙️ VC Mod Perms`** role (`1571258783471243304`), or members with the **`🔀 Move Perms`** role (`1572249183832768662`) for moving members.",
             inline: false,
           }
         )

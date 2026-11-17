@@ -70,12 +70,13 @@ const command: Command = {
         interaction.guild,
         reason,
         interaction.user.tag,
-        duration
+        duration,
+        "hard"
       );
 
       const embed = new EmbedBuilder()
         .setColor(BRAND.colors.danger)
-        .setTitle("🔒 Server Emergency Lockdown Activated")
+        .setTitle("🔒 Server Emergency Lockdown Activated [HARD]")
         .setDescription(
           `**${interaction.user.tag}** initiated a server-wide emergency lockdown.\n\n` +
             `• **Channels Locked:** **${res.channelsLocked.length} channels**\n` +
@@ -107,6 +108,8 @@ const command: Command = {
           SendMessages: false,
           AddReactions: false,
           CreatePublicThreads: false,
+          CreatePrivateThreads: false,
+          SendMessagesInThreads: false,
         },
         { reason: `[Channel Lockdown] ${reason} (by ${interaction.user.tag})` }
       );

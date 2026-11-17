@@ -488,52 +488,54 @@ export const HELP_CATEGORIES: HelpCategory[] = [
   },
   {
     id: "antiraid",
-    name: "Anti-Raid & Server Lockdown",
+    name: "Enterprise Anti-Raid & Server Defense",
     emoji: "🚨",
-    shortDesc: "Mass join detection, account age gate, and emergency lockdown",
+    shortDesc: "Multi-vector raid detection, heuristic risk scoring, panic mode & forensics",
     embed: (guild: Guild) =>
       new EmbedBuilder()
         .setColor(BRAND.colors.danger)
-        .setTitle("🚨 Anti-Raid Shield & Server Emergency Lockdown")
+        .setTitle("🚨 Enterprise Anti-Raid Shield & Panic Defense Hub")
         .setDescription(
-          `Automated, high-velocity defense shield to neutralize raid attacks before they damage ${guild.name}.`
+          `Military-grade, multi-vector real-time shield to detect and neutralize raid attacks before they can impact **${guild.name}**.`
         )
         .addFields(
           {
-            name: "⚡ Mass-Join Detection",
+            name: "⚡ Multi-Vector Raid Detection",
             value:
-              "• Detects rapid join waves (e.g. 5+ accounts in 10s).\n" +
-              "• Automatically executes timeouts on all raiders.\n" +
-              "• Dispatches high-priority emergency alerts with 1-click control buttons.",
+              "• **Join Velocity:** Catches rapid account spikes (e.g. 5 joins / 10s).\n" +
+              "• **Heuristic Risk Engine:** Scores every account (0-100) based on age, avatar, and patterns; auto-isolates high-risk accounts.\n" +
+              "• **Name Similarity Clustering:** Intercepts swarms sharing similar usernames/prefixes.\n" +
+              "• **Default-Avatar Wave Guard:** Detects and contains waves of default-avatar accounts.\n" +
+              "• **Invite Leak Interceptor:** Auto-identifies and deletes compromised Discord invites used by raiders.\n" +
+              "• **Cross-Channel Copypasta:** Blocks multi-channel flood attacks in milliseconds.",
             inline: false,
           },
           {
-            name: "📅 Account Age Gate (< 3 Days)",
+            name: "🔴 Emergency Panic Mode (`panic`)",
             value:
-              "• Automatically flags and restricts brand-new accounts created in the last 24-72 hours.\n" +
-              "• Prevents disposable raid accounts from spamming channels.",
+              "• Type `panic`, `.panic`, `!panic` or `/antiraid panic` in chat.\n" +
+              "• Instantly engages server-wide Hard Lockdown & quarantines all joiners from the last 10 minutes.\n" +
+              "• Pings administrators with 1-click crisis management controls.",
             inline: false,
           },
           {
-            name: "🔒 Emergency Lockdown Commands",
+            name: "📋 Forensic Dossier & Clean-up (`/antiraid`)",
             value:
-              "• `/antiraid lockdown action:lock [duration]` - Locks down all public channels.\n" +
-              "• `/lockdown scope:server` or `/lockdown scope:channel` - Instant lockdown.\n" +
-              "• `/unlock scope:server` or `/unlock scope:channel` - Lifts lockdown.\n" +
-              "• **Text Trigger:** Type `lockdown` or `unlock` in chat (Administrators / Security staff only).",
+              "• `/antiraid raiders` - Forensic breakdown of the last incident wave (IDs, creation dates, risk scores, invite code).\n" +
+              "• `/antiraid sweep [action]` - Bulk apply 24h timeouts or lift timeouts on all captured raiders in 1 click.\n" +
+              "• `/antiraid risk user:@user` - Inspect the security risk profile and audit breakdown for any member.",
             inline: false,
           },
           {
-            name: "🛡️ Configuration & Controls",
+            name: "🔒 Emergency Lockdown & Unlock Commands",
             value:
-              "• `/antiraid status` - View live shield status and lockdown states.\n" +
-              "• `/antiraid enable` / `/antiraid disable` - Quick toggle.\n" +
-              "• `/antiraid config` - Tune join thresholds, min account age, and timeout durations.\n" +
-              "• `/antiraid whitelist` - Exempt trusted staff or VIP roles.",
+              "• `/lockdown scope:server|channel [duration]` - Instant lock.\n" +
+              "• `/unlock scope:server|channel` - Lifts lockdown.\n" +
+              "• **Chat Triggers:** Type `lockdown` or `unlock` directly in chat without `/`.",
             inline: false,
           }
         )
-        .setFooter({ text: `${BRAND.footer} • Anti-Raid Defense` })
+        .setFooter({ text: `${BRAND.footer} • Enterprise Anti-Raid Defense` })
         .setTimestamp(),
   },
 ];

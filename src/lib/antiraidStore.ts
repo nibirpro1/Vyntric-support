@@ -2,6 +2,30 @@ import fs from "fs";
 import path from "path";
 
 export type AntiRaidAction = "timeout" | "quarantine" | "kick";
+export type LockdownMode = "soft" | "hard";
+
+export interface RaiderProfile {
+  userId: string;
+  userTag: string;
+  createdAt: number;
+  joinedAt: number;
+  riskScore: number;
+  riskFactors: string[];
+  timedOut: boolean;
+  inviteCode?: string;
+}
+
+export interface RaidIncident {
+  id: string;
+  timestamp: number;
+  type: "mass_join" | "name_pattern" | "default_avatar" | "cross_channel_spam" | "risk_spike" | "manual_panic";
+  velocity: string;
+  inviteCode?: string;
+  raiderCount: number;
+  raiders: RaiderProfile[];
+  lockdownApplied: boolean;
+  channelsLocked: string[];
+}
 
 export interface AntiRaidConfig {
   guildId: string;
@@ -14,11 +38,37 @@ export interface AntiRaidConfig {
     timeoutMinutes: number; // default: 60 minutes
     autoLockdown: boolean; // default: true
     autoLockdownMinutes: number; // default: 15 minutes
+    lockdownMode: LockdownMode; // soft vs hard
+  };
+  riskScoring: {
+    enabled: boolean;
+    quarantineThreshold: number; // default: 60 (out of 100)
+    alertThreshold: number; // default: 45
+    action: "timeout" | "quarantine" | "alert";
+    timeoutMinutes: number; // default: 60
+  };
+  nameSimilarity: {
+    enabled: boolean;
+    threshold: number; // e.g. 3 similar names in window
+    similarityRatio: number; // e.g. 0.75
+  };
+  defaultAvatarGate: {
+    enabled: boolean;
+    burstCount: number; // e.g. 3 default avatars in 15s triggers wave alarm
+  };
+  inviteTracking: {
+    enabled: boolean;
+    autoRevokeRaidInvite: boolean; // auto-delete invite used by raiders
+  };
+  crossChannelSpam: {
+    enabled: boolean;
+    maxChannels: number; // default: 2 channels within 10s
+    timeoutMinutes: number; // default: 60
   };
   accountAgeGate: {
     enabled: boolean;
     minAgeDays: number; // default: 3 days
-    action: "timeout" | "quarantine" | "kick" | "alert"; // default: timeout
+    action: "timeout" | "quarantine" | "kick" | "alert";
     timeoutMinutes: number; // default: 30 minutes
   };
   antiSpamRaid: {
@@ -30,7 +80,7 @@ export interface AntiRaidConfig {
   };
   antiMentionRaid: {
     enabled: boolean;
-    maxMentions: number; // default: 4 mentions in a single message
+    maxMentions: number; // default: 4 mentions
     action: "timeout";
     timeoutMinutes: number; // default: 60 minutes
   };
@@ -39,12 +89,14 @@ export interface AntiRaidConfig {
   logChannelId: string | null;
   activeLockdown: {
     active: boolean;
+    mode: LockdownMode;
     startedAt: number;
     channelsLocked: string[];
     expiresAt?: number;
     reason?: string;
     initiatedBy?: string;
   } | null;
+  lastIncident: RaidIncident | null;
   updatedAt: number;
 }
 
@@ -97,6 +149,32 @@ export function getDefaultAntiRaidConfig(guildId: string): AntiRaidConfig {
       timeoutMinutes: 60,
       autoLockdown: true,
       autoLockdownMinutes: 15,
+      lockdownMode: "hard",
+    },
+    riskScoring: {
+      enabled: true,
+      quarantineThreshold: 60,
+      alertThreshold: 45,
+      action: "timeout",
+      timeoutMinutes: 60,
+    },
+    nameSimilarity: {
+      enabled: true,
+      threshold: 3,
+      similarityRatio: 0.75,
+    },
+    defaultAvatarGate: {
+      enabled: true,
+      burstCount: 3,
+    },
+    inviteTracking: {
+      enabled: true,
+      autoRevokeRaidInvite: true,
+    },
+    crossChannelSpam: {
+      enabled: true,
+      maxChannels: 2,
+      timeoutMinutes: 60,
     },
     accountAgeGate: {
       enabled: true,
@@ -121,6 +199,7 @@ export function getDefaultAntiRaidConfig(guildId: string): AntiRaidConfig {
     whitelistedRoles: [],
     logChannelId: null,
     activeLockdown: null,
+    lastIncident: null,
     updatedAt: Date.now(),
   };
 }
@@ -129,6 +208,32 @@ export function getAntiRaidConfig(guildId: string): AntiRaidConfig {
   if (!store[guildId]) {
     store[guildId] = getDefaultAntiRaidConfig(guildId);
     persist();
+  } else {
+    // Migration: ensure new fields are populated
+    const current = store[guildId];
+    let changed = false;
+    const defaults = getDefaultAntiRaidConfig(guildId);
+    if (!current.riskScoring) {
+      current.riskScoring = defaults.riskScoring;
+      changed = true;
+    }
+    if (!current.nameSimilarity) {
+      current.nameSimilarity = defaults.nameSimilarity;
+      changed = true;
+    }
+    if (!current.defaultAvatarGate) {
+      current.defaultAvatarGate = defaults.defaultAvatarGate;
+      changed = true;
+    }
+    if (!current.inviteTracking) {
+      current.inviteTracking = defaults.inviteTracking;
+      changed = true;
+    }
+    if (!current.crossChannelSpam) {
+      current.crossChannelSpam = defaults.crossChannelSpam;
+      changed = true;
+    }
+    if (changed) persist();
   }
   return store[guildId];
 }

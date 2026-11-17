@@ -120,17 +120,22 @@ const command: Command = {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`vcrep:timeout:${member.id}`)
-        .setLabel("Kick & 5m Timeout")
+        .setLabel("Timeout (5m)")
+        .setEmoji("⏳")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`vcrep:vcban:${member.id}`)
+        .setLabel("VC Ban")
         .setEmoji("🔨")
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
         .setCustomId(`vcrep:kick:${member.id}`)
-        .setLabel("Kick from VC")
+        .setLabel("Disconnect")
         .setEmoji("🚪")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId(`vcrep:mute:${member.id}`)
-        .setLabel("Server Mute")
+        .setLabel("Mute")
         .setEmoji("🔇")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()

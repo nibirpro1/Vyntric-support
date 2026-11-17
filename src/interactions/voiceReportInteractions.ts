@@ -7,6 +7,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { addPunishment } from "../lib/store";
+import { addVcBan } from "../lib/vcBanStore";
 import { BRAND } from "../lib/brand";
 
 export async function handleVoiceReportButton(interaction: ButtonInteraction): Promise<void> {
@@ -221,6 +222,56 @@ export async function handleVoiceReportButton(interaction: ButtonInteraction): P
 
         await interaction.followUp({
           content: `✅ **Success:** **${targetMember.user.tag}** was server-muted in voice.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        break;
+      }
+
+      case "vcban": {
+        if (targetMember.voice.channel) {
+          await targetMember.voice.disconnect(`VC Ban Enforcement (by ${interaction.user.tag})`).catch(() => {});
+        }
+
+        addVcBan({
+          guildId: interaction.guild.id,
+          userId: targetMember.id,
+          userTag: targetMember.user.tag,
+          staffId: interaction.user.id,
+          staffTag: interaction.user.tag,
+          reason: `VC Abuse Report: Banned from all voice channels by ${interaction.user.tag}`,
+          timestamp: Date.now(),
+        });
+
+        // DM to offender
+        try {
+          const dmEmbed = new EmbedBuilder()
+            .setColor(BRAND.colors.danger)
+            .setTitle("🚫 You have been VC-Banned")
+            .setDescription(
+              `You have been **banned from all Voice Channels** in **${interaction.guild.name}** following a verified voice channel abuse report.`
+            )
+            .setFooter({ text: `${BRAND.name} Voice Security` })
+            .setTimestamp();
+          await targetMember.send({ embeds: [dmEmbed] });
+        } catch {}
+
+        if (originalEmbed) {
+          originalEmbed
+            .setColor(BRAND.colors.danger)
+            .addFields({
+              name: "Resolution",
+              value: `🔨 **VC-Banned** by ${interaction.user} (\`${interaction.user.tag}\`) • Blocked from all voice channels`,
+              inline: false,
+            });
+        }
+
+        await interaction.update({
+          components: disabledRows,
+          embeds: originalEmbed ? [originalEmbed] : originalMessage.embeds,
+        });
+
+        await interaction.followUp({
+          content: `✅ **Success:** **${targetMember.user.tag}** is now **VC-Banned** from all voice channels in this server.`,
           flags: MessageFlags.Ephemeral,
         });
         break;

@@ -13,6 +13,7 @@ import { addPunishment } from "../../lib/store";
 import { getAutoModConfig } from "../../lib/automodStore";
 import { formatPunishmentLabel } from "../../lib/automodEngine";
 import { addVcBan, removeVcBan, getGuildVcBans, isUserVcBanned } from "../../lib/vcBanStore";
+import { getVc247Status, joinVc247, leaveVc247 } from "../../lib/vc247Manager";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
@@ -212,6 +213,29 @@ const command: Command = {
         )
     )
     .addSubcommand((sub) =>
+      sub
+        .setName("247")
+        .setDescription("Manage 24/7 persistent Voice Channel presence")
+        .addStringOption((opt) =>
+          opt
+            .setName("action")
+            .setDescription("24/7 Action")
+            .addChoices(
+              { name: "🎙️ Join & Stay 24/7", value: "join" },
+              { name: "🚪 Leave & Disable 24/7", value: "leave" },
+              { name: "📊 Check 24/7 Status", value: "status" }
+            )
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName("channel")
+            .setDescription("Target Voice Channel (defaults to your current VC)")
+            .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((sub) =>
       sub.setName("status").setDescription("Check active VC Gali Shield & Anti-Louding status")
     ),
 
@@ -219,8 +243,93 @@ const command: Command = {
     if (!interaction.guild) return;
 
     const sub = interaction.options.getSubcommand();
-    const isEphemeral = sub === "status" || sub === "banlist";
+    const isEphemeral =
+      sub === "status" ||
+      sub === "banlist" ||
+      (sub === "247" && interaction.options.getString("action") === "status");
     await interaction.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
+
+    if (sub === "247") {
+      const action = interaction.options.getString("action", true);
+      const guild = interaction.guild;
+      const caller =
+        guild.members.cache.get(interaction.user.id) ||
+        (await guild.members.fetch(interaction.user.id).catch(() => null));
+
+      if (action === "status") {
+        const status = getVc247Status(guild);
+        const isOnline = status.enabled && status.connectionStatus === "ready";
+        const embed = new EmbedBuilder()
+          .setColor(isOnline ? BRAND.colors.success : BRAND.colors.neutral)
+          .setTitle(`🎙️ ${BRAND.name} 24/7 Voice Channel Presence`)
+          .setDescription(
+            `• **Mode:** ${status.enabled ? "🟢 **ENABLED (24/7 ACTIVE)**" : "🔴 **DISABLED**"}\n` +
+              `• **Connection:** \`${status.connectionStatus.toUpperCase()}\`\n` +
+              `• **Channel:** ${status.channelId ? `<#${status.channelId}> (\`${status.channelName}\`)` : "_None_"}\n` +
+              `• **Uptime:** \`${status.uptimeText}\`\n` +
+              `• **Auto-Reconnects:** \`${status.reconnects}\`\n` +
+              `• **Persistence:** Automatically reconnects on bot boot or network disconnects.`
+          )
+          .setFooter({ text: `${BRAND.footer} • 24/7 Voice Presence` })
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+
+      if (action === "join") {
+        let targetChannel = interaction.options.getChannel("channel") as VoiceBasedChannel | null;
+        if (!targetChannel && caller) {
+          targetChannel = caller.voice.channel;
+        }
+
+        if (!targetChannel) {
+          await interaction.editReply({
+            content: "⚠️ You must either specify a voice channel or be connected to one yourself.",
+          });
+          return;
+        }
+
+        const res = await joinVc247(guild, targetChannel.id, interaction.user.tag);
+        if (!res.success) {
+          await interaction.editReply({
+            content: `❌ Could not connect to **#${res.channelName}**: ${res.error}`,
+          });
+          return;
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(BRAND.colors.success)
+          .setTitle("🎙️ 24/7 Voice Presence Activated")
+          .setDescription(
+            `**${BRAND.name}** is now connected to <#${targetChannel.id}> and will stay **24/7**!\n\n` +
+              `• **Target Channel:** <#${targetChannel.id}>\n` +
+              `• **Auto-Reconnect:** Active\n` +
+              `• **Self-Deafen & Mute:** Active (Optimized performance)`
+          )
+          .setFooter({ text: `${BRAND.footer} • 24/7 Persistent Voice` })
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+
+      if (action === "leave") {
+        const res = await leaveVc247(guild);
+        const embed = new EmbedBuilder()
+          .setColor(BRAND.colors.neutral)
+          .setTitle("🚪 24/7 Voice Mode Deactivated")
+          .setDescription(
+            `**${BRAND.name}** has disconnected${res.channelName ? ` from **#${res.channelName}**` : ""}.\n` +
+              `24/7 persistent voice presence is now disabled.`
+          )
+          .setFooter({ text: BRAND.footer })
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+    }
 
     if (sub === "status") {
       const config = getAutoModConfig(interaction.guild.id);

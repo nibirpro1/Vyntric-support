@@ -1,6 +1,7 @@
 import { Events, VoiceState, PermissionFlagsBits, EmbedBuilder, TextChannel } from "discord.js";
 import { getAutoModConfig } from "../lib/automodStore";
 import { isUserVcBanned, getVcBan } from "../lib/vcBanStore";
+import { handleBotVoiceState } from "../lib/vc247Manager";
 import { BRAND } from "../lib/brand";
 
 // Track rapid mute/unmute/deafen state changes: guildId:userId -> timestamps[]
@@ -16,6 +17,13 @@ export default {
   async execute(oldState: VoiceState, newState: VoiceState) {
     const member = newState.member || oldState.member;
     const guild = newState.guild || oldState.guild;
+
+    // 0. 24/7 Voice Guardian: Ensure bot stays locked to designated 24/7 VC
+    if (member && guild?.client?.user && member.id === guild.client.user.id) {
+      await handleBotVoiceState(oldState, newState, guild.client as any);
+      return;
+    }
+
     if (!member || !guild || member.user.bot) return;
 
     // 1. Enforce VC Ban (Instant kick if member is VC-banned in this server)

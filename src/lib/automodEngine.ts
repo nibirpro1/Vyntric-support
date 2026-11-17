@@ -273,6 +273,38 @@ export const BUILTIN_BANGLISH_HINDI_GALI = [
   "ear rape",
   "mic spam",
   "loud mic",
+  "chodon",
+  "chudachudi",
+  "khanki magi",
+  "khankir jhi",
+  "khankir baccha",
+  "chudir bhai",
+  "chudir pola",
+  "chudaite",
+  "gudmara",
+  "podmara",
+  "bhosdike",
+  "bhosdiwala",
+  "behenchod",
+  "behnchod",
+  "madarchod",
+  "betichod",
+  "maderchod",
+  "gandu",
+  "chutiya",
+  "chutiye",
+  "lodu",
+  "lawda",
+  "lavda",
+  "gaand",
+  "suor er bacha",
+  "kuttar baccha",
+  "kuttar pola",
+  "haramkhor",
+  "harami",
+  "baal chada",
+  "baler heda",
+  "hedar bal",
 ];
 
 export const BUILTIN_ENGLISH_GALI = [
@@ -1349,11 +1381,12 @@ export async function executeAutoModCheck(
       violationReason = `[VC] ${violationReason}`;
     }
 
-    // If the offender is currently inside ANY Voice Channel (public or private), immediately disconnect them
+    // If the offender is currently inside ANY Voice Channel (public or private), immediately disconnect & server-mute them
     if (member?.voice?.channel) {
       try {
+        await member.voice.setMute(true, `AutoMod Voice Shield (Strike #${strikeCount})`).catch(() => {});
         await member.voice.disconnect(`AutoMod (Strike #${strikeCount}): ${violationReason}`);
-        actionNote += " + Kicked from Voice Channel";
+        actionNote += " + Server-Muted & Kicked from Voice Channel";
       } catch (vcErr) {
         console.error("[automod:vc:disconnect:error]", vcErr);
       }

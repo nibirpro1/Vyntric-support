@@ -102,5 +102,13 @@ export default {
     } catch (err) {
       console.error("[antiraid:init:error]", err);
     }
+
+    // Initialize 24/7 Voice Channel Presence
+    try {
+      const { syncAllVc247 } = require("../lib/vc247Manager");
+      syncAllVc247(client);
+    } catch (err) {
+      console.error("[vc247:init:error]", err);
+    }
   },
 };

@@ -315,22 +315,40 @@ export const HELP_CATEGORIES: HelpCategory[] = [
   },
   {
     id: "vc",
-    name: "Voice Channel Security & Anti-Louding",
+    name: "Voice Channel Security & 24/7 Presence",
     emoji: "🎙️",
-    shortDesc: "VC bans, disconnects, and automatic ear-rape soundboard detector",
+    shortDesc: "24/7 VC presence, voice gali shield, VC bans & soundboard detector",
     embed: (guild: Guild) =>
       new EmbedBuilder()
         .setColor(0xe67e22)
-        .setTitle("🎙️ Voice Channel Moderation & Anti-Abuse")
+        .setTitle("🎙️ Voice Channel Moderation, 24/7 VC & Voice Gali Shield")
         .setDescription(
-          `Keep your voice channels clean, peaceful, and free of ear-rape trolls.`
+          `Comprehensive suite for 24/7 Voice presence, anti-gali protection, soundboard spam defense, and staff voice controls.`
         )
         .addFields(
+          {
+            name: "🎙️ 24/7 Persistent Voice Presence",
+            value:
+              "• `/247 join [channel]` or `/vc 247 action:join` - Locks VyntricBD into the voice channel 24/7.\n" +
+              "• `/247 leave` or `/vc 247 action:leave` - Disconnects the bot and turns off 24/7 mode.\n" +
+              "• `/247 status` - View live uptime, connection status, and ping.\n" +
+              "• **Auto-Reconnect Engine:** Automatically re-joins on bot reboots, server moves, or disconnects.\n" +
+              "• **Chat Trigger:** Type `247`, `joinvc`, or `leavevc` directly in chat.",
+            inline: false,
+          },
+          {
+            name: "🤬 Advanced Voice Gali Shield",
+            value:
+              "• **Multi-Dialect Coverage:** Bangla, Sylheti, Dhakaiya, Hindi, Urdu & English profanity.\n" +
+              "• **Instant Action:** Disconnects member from VC + Server-Mutes them + Applies strike timeout.\n" +
+              "• **Voice Abuse Reports:** `/vcreport member:@user reason:<details>` dispatches staff alerts with 1-click `[🔨 VC Ban]`, `[Mute]`, and `[Disconnect]` buttons.",
+            inline: false,
+          },
           {
             name: "🔊 Anti-Louding Soundboard Auto-Detector",
             value:
               "• Automatically detects soundboard spam (>3 sounds in 4 seconds).\n" +
-              "• Instantly silences the offender with a **10-minute server timeout**.\n" +
+              "• Instantly silences the offender with a **10-minute server timeout** and VC kick.\n" +
               "• Logs incident to `#server-logs` with sound ID and count.",
             inline: false,
           },
@@ -344,23 +362,13 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             inline: false,
           },
           {
-            name: "🛠️ VC Moderation Commands",
-            value:
-              "• `/vc kick user:@user` - Disconnect from voice\n" +
-              "• `/vc mute user:@user` / `/vc unmute` - Server mute/unmute\n" +
-              "• `/vc deafen user:@user` / `/vc undeafen` - Server deafen\n" +
-              "• `/vc move user:@user channel:#target` - Move member between channels\n" +
-              "• `/vc lock` / `/vc unlock` - Lock voice channel from non-whitelisted members",
-            inline: false,
-          },
-          {
             name: "🛡️ Required Role",
             value:
               "Administrators or members with the **`🎙️ VC Mod Perms`** role (`1571258783471243304`).",
             inline: false,
           }
         )
-        .setFooter({ text: "Extreme Voice Protection Suite Active" })
+        .setFooter({ text: "VyntricBD Voice Defense & 24/7 Active" })
         .setTimestamp(),
   },
   {

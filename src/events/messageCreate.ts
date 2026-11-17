@@ -11,6 +11,7 @@ import { executeAutoModCheck } from "../lib/automodEngine";
 import { handleTextModeration } from "../lib/textModeration";
 import { handleHelpTextCommand } from "../lib/helpDashboard";
 import { handleAntiRaidTextCommand, handleRaidMessage } from "../lib/antiraidManager";
+import { handleVc247TextCommand } from "../lib/vc247Manager";
 
 // Message deduplication cache: messageId -> boolean
 const handledMessageIds = new Set<string>();
@@ -71,6 +72,14 @@ export default {
     // ─────────────────────────────────────────────────────────────
     const isAntiRaidHandled = await handleAntiRaidTextCommand(message);
     if (isAntiRaidHandled) {
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 24/7 VOICE CONTROLS (247, joinvc, leavevc)
+    // ─────────────────────────────────────────────────────────────
+    const isVc247Handled = await handleVc247TextCommand(message);
+    if (isVc247Handled) {
       return;
     }
 

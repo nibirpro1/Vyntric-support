@@ -36,6 +36,13 @@ const command: Command = {
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(false)
         )
+        .addChannelOption((opt) =>
+          opt
+            .setName("voice-channel")
+            .setDescription("Channel for voice channel join/leave/switch logs (e.g. # join-log)")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -51,6 +58,7 @@ const command: Command = {
               { name: "Message Deletes", value: "messageDelete" },
               { name: "Message Edits", value: "messageUpdate" },
               { name: "Command Executions", value: "commandLog" },
+              { name: "Voice Activity (Join/Leave/Move)", value: "voiceLog" },
               { name: "Member Updates", value: "memberUpdate" }
             )
         )
@@ -73,10 +81,11 @@ const command: Command = {
       case "setup": {
         const msgChannel = interaction.options.getChannel("message-channel") as TextChannel | null;
         const cmdChannel = interaction.options.getChannel("command-channel") as TextChannel | null;
+        const voiceChannel = interaction.options.getChannel("voice-channel") as TextChannel | null;
 
-        if (!msgChannel && !cmdChannel) {
+        if (!msgChannel && !cmdChannel && !voiceChannel) {
           await interaction.reply({
-            content: "⚠️ Please specify at least one channel to configure (`message-channel` or `command-channel`).",
+            content: "⚠️ Please specify at least one channel to configure (`message-channel`, `command-channel`, or `voice-channel`).",
           });
           return;
         }
@@ -88,6 +97,10 @@ const command: Command = {
         }
         if (cmdChannel) {
           updates.commandLogChannelId = cmdChannel.id;
+        }
+        if (voiceChannel) {
+          updates.voiceLogChannelId = voiceChannel.id;
+          updates.voiceLog = true;
         }
 
         const updated = updateLoggingConfig(guildId, updates);
@@ -105,6 +118,11 @@ const command: Command = {
             {
               name: "⚡ Command Logs",
               value: updated.commandLogChannelId ? `<#${updated.commandLogChannelId}>` : "_None_",
+              inline: true,
+            },
+            {
+              name: "🔊 Voice Activity Logs",
+              value: updated.voiceLogChannelId ? `<#${updated.voiceLogChannelId}>` : "_None_",
               inline: true,
             }
           )
@@ -148,6 +166,11 @@ const command: Command = {
               inline: true,
             },
             {
+              name: "🔊 Voice Log Channel",
+              value: config.voiceLogChannelId ? `<#${config.voiceLogChannelId}>` : "❌ Disabled",
+              inline: true,
+            },
+            {
               name: "📨 Sent Messages",
               value: config.messageSend ? "✅ Enabled" : "❌ Disabled",
               inline: true,
@@ -165,6 +188,11 @@ const command: Command = {
             {
               name: "💻 Command Executions",
               value: config.commandLog ? "✅ Enabled" : "❌ Disabled",
+              inline: true,
+            },
+            {
+              name: "🎙️ Voice Activity Logs",
+              value: config.voiceLog ? "✅ Enabled" : "❌ Disabled",
               inline: true,
             }
           )

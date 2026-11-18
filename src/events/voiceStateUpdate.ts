@@ -3,6 +3,7 @@ import { getAutoModConfig } from "../lib/automodStore";
 import { isUserVcBanned, getVcBan } from "../lib/vcBanStore";
 import { handleBotVoiceState } from "../lib/vc247Manager";
 import { handleTempVoiceStateUpdate } from "../lib/tempVoiceManager";
+import { logVoiceChannelActivity } from "../lib/loggingStore";
 import { BRAND } from "../lib/brand";
 
 // Track rapid mute/unmute/deafen state changes: guildId:userId -> timestamps[]
@@ -65,6 +66,9 @@ export default {
 
     // 2.5 TempVoice / Join-to-Create handler (Astro / TempVoice system)
     await handleTempVoiceStateUpdate(oldState, newState);
+
+    // 2.7 Voice Channel Activity Logger (Log to #join-log: 1508548021808398346)
+    await logVoiceChannelActivity(oldState, newState);
 
     const autoMod = getAutoModConfig(guild.id);
 

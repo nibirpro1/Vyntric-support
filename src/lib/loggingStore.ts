@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { EmbedBuilder, Guild, Message, PartialMessage, TextChannel, User } from "discord.js";
+import { EmbedBuilder, Guild, Message, PartialMessage, TextChannel, User, VoiceState } from "discord.js";
+import { getTempVoiceConfig } from "./tempVoiceStore";
 
 export interface CachedMessage {
   id: string;
@@ -19,10 +20,12 @@ export interface LoggingConfig {
   logChannelId: string | null;            // General fallback
   messageLogChannelId: string | null;     // Carl-bot style message edit/delete log (e.g. # messege)
   commandLogChannelId: string | null;     // Dyno style command log (e.g. # command-log)
+  voiceLogChannelId: string | null;       // Voice channel join/leave/switch log (e.g. # join-log)
   messageSend: boolean;
   messageDelete: boolean;
   messageUpdate: boolean;
   commandLog: boolean;
+  voiceLog: boolean;
   memberUpdate: boolean;
   updatedAt: number;
 }
@@ -71,10 +74,12 @@ export function getLoggingConfig(guildId: string): LoggingConfig {
       logChannelId: "1548374744695447623",
       messageLogChannelId: "1548374744695447623", // # messege
       commandLogChannelId: "1508519539388977163", // # command-log
+      voiceLogChannelId: "1508548021808398346",   // # join-log
       messageSend: true,
       messageDelete: true,
       messageUpdate: true,
       commandLog: true,
+      voiceLog: true,
       memberUpdate: true,
       updatedAt: Date.now(),
     };
@@ -87,11 +92,17 @@ export function getLoggingConfig(guildId: string): LoggingConfig {
   if (!store[guildId].commandLogChannelId) {
     store[guildId].commandLogChannelId = "1508519539388977163";
   }
+  if (!store[guildId].voiceLogChannelId) {
+    store[guildId].voiceLogChannelId = "1508548021808398346";
+  }
   if (store[guildId].messageSend === undefined) {
     store[guildId].messageSend = true;
   }
   if (store[guildId].commandLog === undefined) {
     store[guildId].commandLog = true;
+  }
+  if (store[guildId].voiceLog === undefined) {
+    store[guildId].voiceLog = true;
   }
   return store[guildId];
 }
@@ -248,5 +259,115 @@ export async function logMessageSent(message: Message) {
     console.error("[log:messageSent:error]", err);
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// VOICE CHANNEL JOIN / LEAVE / MOVE LOGGER (#join-log)
+// ─────────────────────────────────────────────────────────────
+export async function logVoiceChannelActivity(
+  oldState: VoiceState,
+  newState: VoiceState
+): Promise<void> {
+  const member = newState.member || oldState.member;
+  const guild = newState.guild || oldState.guild;
+  if (!member || !guild || member.user.bot) return;
+
+  const oldChannelId = oldState.channelId;
+  const newChannelId = newState.channelId;
+
+  // If voice channel didn't change (e.g. only mute/deafen/stream toggles), skip join-log
+  if (oldChannelId === newChannelId) return;
+
+  const tempConfig = getTempVoiceConfig(guild.id);
+  const creatorId = tempConfig?.creatorChannelId;
+
+  // If user is joining the generator lobby ("Create vc"), skip logging this intermediate step
+  if (newChannelId && newChannelId === creatorId) {
+    return;
+  }
+
+  // If moving out of the generator lobby to their created channel, treat as a direct Join
+  const isFromLobby = Boolean(oldChannelId && oldChannelId === creatorId);
+  const isDirectJoin = (!oldChannelId && newChannelId) || (isFromLobby && Boolean(newChannelId));
+
+  const config = getLoggingConfig(guild.id);
+  const targetChannelId = config.voiceLogChannelId || "1508548021808398346";
+  if (!config.voiceLog || !targetChannelId) return;
+
+  try {
+    const channel =
+      (guild.channels.cache.get(targetChannelId) as TextChannel | undefined) ||
+      ((await guild.channels.fetch(targetChannelId).catch(() => null)) as TextChannel | null);
+
+    if (!channel || !channel.isTextBased()) return;
+
+    let embed: EmbedBuilder | null = null;
+
+    if (isDirectJoin && newChannelId) {
+      // 1. JOINED VOICE CHANNEL
+      const voiceChannel = newState.channel;
+      const count = voiceChannel?.members.size || 1;
+      embed = new EmbedBuilder()
+        .setColor(0x2ecc71) // Green
+        .setAuthor({
+          name: `${member.user.tag} (${member.user.username})`,
+          iconURL: member.user.displayAvatarURL(),
+        })
+        .setTitle("🔊 Voice Channel Joined")
+        .setDescription(`**${member}** joined voice channel <#${newChannelId}>`)
+        .addFields(
+          { name: "👤 User", value: `${member} (\`${member.user.tag}\`)`, inline: true },
+          { name: "📥 Channel", value: `<#${newChannelId}>\n\`#${voiceChannel?.name || "Voice Channel"}\``, inline: true },
+          { name: "👥 Members in Room", value: `**${count}** member${count === 1 ? "" : "s"}`, inline: true }
+        )
+        .setFooter({ text: `User ID: ${member.id} • Channel ID: ${newChannelId}` })
+        .setTimestamp();
+    } else if (oldChannelId && !newChannelId && !isFromLobby) {
+      // 2. LEFT VOICE CHANNEL
+      const voiceChannel = oldState.channel;
+      const remaining = voiceChannel?.members.size || 0;
+      embed = new EmbedBuilder()
+        .setColor(0xe74c3c) // Red
+        .setAuthor({
+          name: `${member.user.tag} (${member.user.username})`,
+          iconURL: member.user.displayAvatarURL(),
+        })
+        .setTitle("🔇 Voice Channel Left")
+        .setDescription(`**${member}** left voice channel <#${oldChannelId}>`)
+        .addFields(
+          { name: "👤 User", value: `${member} (\`${member.user.tag}\`)`, inline: true },
+          { name: "📤 Channel", value: `<#${oldChannelId}>\n\`#${voiceChannel?.name || "Voice Channel"}\``, inline: true },
+          { name: "👥 Remaining in Room", value: `**${remaining}** member${remaining === 1 ? "" : "s"}`, inline: true }
+        )
+        .setFooter({ text: `User ID: ${member.id} • Channel ID: ${oldChannelId}` })
+        .setTimestamp();
+    } else if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
+      // 3. SWITCHED / MOVED VOICE CHANNEL
+      const fromChannel = oldState.channel;
+      const toChannel = newState.channel;
+      embed = new EmbedBuilder()
+        .setColor(0x3498db) // Blue
+        .setAuthor({
+          name: `${member.user.tag} (${member.user.username})`,
+          iconURL: member.user.displayAvatarURL(),
+        })
+        .setTitle("🔀 Voice Channel Switched")
+        .setDescription(`**${member}** switched voice channels`)
+        .addFields(
+          { name: "👤 User", value: `${member} (\`${member.user.tag}\`)`, inline: false },
+          { name: "📤 Left Channel", value: `<#${oldChannelId}> (\`#${fromChannel?.name || "Voice"}\`)`, inline: true },
+          { name: "📥 Joined Channel", value: `<#${newChannelId}> (\`#${toChannel?.name || "Voice"}\`)`, inline: true }
+        )
+        .setFooter({ text: `User ID: ${member.id}` })
+        .setTimestamp();
+    }
+
+    if (embed) {
+      await channel.send({ embeds: [embed] }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[log:voiceActivity:error]", err);
+  }
+}
+
 
 

@@ -4,10 +4,12 @@
     "logChannelId": "1548374744695447623",
     "messageLogChannelId": "1548374744695447623",
     "commandLogChannelId": "1508519539388977163",
+    "voiceLogChannelId": "1508548021808398346",
     "messageSend": true,
     "messageDelete": true,
     "messageUpdate": true,
     "commandLog": true,
+    "voiceLog": true,
     "memberUpdate": true,
     "updatedAt": 1794336500000
   }

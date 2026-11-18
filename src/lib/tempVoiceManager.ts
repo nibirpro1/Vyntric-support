@@ -37,7 +37,7 @@ export function buildInterfacePayload(
 ) {
   let color = 0xd4145a;
   let description =
-    "# TempVoice Interface\n" +
+    "# VC Interface\n" +
     "This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands.";
 
   if (record && channel) {
@@ -63,7 +63,7 @@ export function buildInterfacePayload(
     const chatStr = record.chatLocked ? "🔒 Locked" : "💬 Open";
 
     description =
-      `# TempVoice Interface\n` +
+      `# VC Interface\n` +
       `This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands.\n\n` +
       `> 👑 **Room Owner:** <@${record.ownerId}>\n` +
       `> 👥 **Capacity:** \`${capacityStr}\`\n` +

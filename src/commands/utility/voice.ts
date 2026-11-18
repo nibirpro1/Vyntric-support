@@ -174,7 +174,7 @@ const command: Command = {
     .addSubcommand((sub) =>
       sub
         .setName("setup")
-        .setDescription("Administrator: Setup the TempVoice interface control panel")
+        .setDescription("Administrator: Setup the VC interface control panel")
         .addChannelOption((opt) =>
           opt
             .setName("channel")
@@ -234,7 +234,7 @@ const command: Command = {
       });
 
       await interaction.editReply(
-        `✅ **TempVoice Interface successfully set up in <#${targetCh.id}>!**\n` +
+        `✅ **VC Interface successfully set up in <#${targetCh.id}>!**\n` +
           `Control Panel has been deployed with all 15 management buttons.`
       );
       return;

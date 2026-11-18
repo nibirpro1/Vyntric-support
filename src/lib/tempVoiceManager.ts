@@ -66,9 +66,13 @@ export function buildInterfacePayload(
       `# TempVoice Interface\n` +
       `This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands.\n\n` +
       `> 👑 **Room Owner:** <@${record.ownerId}>\n` +
-      `> 👥 **Capacity:** \`${capacityStr}\`  |  **Privacy:** \`${privacyStr}\`\n` +
-      `> 👁️ **Visibility:** \`${visibilityStr}\`  |  **Chat:** \`${chatStr}\`\n` +
-      `> 🛡️ **Trusted:** \`${trustedCount}\`  |  **Blocked:** \`${blockedCount}\`  |  **Waiting:** \`${waitingStr}\``;
+      `> 👥 **Capacity:** \`${capacityStr}\`\n` +
+      `> 🔐 **Privacy:** \`${privacyStr}\`\n` +
+      `> 👁️ **Visibility:** \`${visibilityStr}\`\n` +
+      `> 💬 **Chat:** \`${chatStr}\`\n` +
+      `> 🛡️ **Trusted:** \`${trustedCount}\`\n` +
+      `> 🚫 **Blocked:** \`${blockedCount}\`\n` +
+      `> ⏳ **Waiting Room:** \`${waitingStr}\``;
   }
 
   const embed = new EmbedBuilder()

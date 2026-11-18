@@ -7,13 +7,45 @@ SIZE = 512
 TOTAL_FRAMES = 42
 FPS = 18
 
-# 1. Load original pristine uploaded image
+# 1. Load original pristine uploaded image and perfectly center the emblem
 src_path = os.path.join("assets", "vyntric-avatar.jpg")
 if not os.path.exists(src_path):
     raise FileNotFoundError(f"{src_path} not found!")
 
-orig_img = Image.open(src_path).convert("RGB")
-base_512 = orig_img.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+raw_orig = Image.open(src_path).convert("RGB")
+w_orig, h_orig = raw_orig.size
+
+# Calculate exact vertical shift needed to center the emblem
+pix_orig = raw_orig.load()
+min_y_orig, max_y_orig = h_orig, 0
+for y in range(h_orig):
+    for x in range(w_orig):
+        r, g, b = pix_orig[x, y]
+        if (g + b) / 2 > 100:
+            min_y_orig = min(min_y_orig, y)
+            max_y_orig = max(max_y_orig, y)
+
+curr_cy = (min_y_orig + max_y_orig) / 2.0
+shift_y = int(round((h_orig / 2.0) - curr_cy))
+print(f"[avatar] Centering emblem: cy={curr_cy:.1f}, shift_y={shift_y}")
+
+# Create perfectly centered 1024x1024 image
+orig_centered = Image.new("RGB", (w_orig, h_orig), (18, 5, 8))
+if shift_y > 0:
+    top_strip = raw_orig.crop((0, 0, w_orig, 1)).resize((w_orig, shift_y))
+    orig_centered.paste(top_strip, (0, 0))
+    orig_centered.paste(raw_orig, (0, shift_y))
+elif shift_y < 0:
+    orig_centered.paste(raw_orig, (0, shift_y))
+    bot_strip = raw_orig.crop((0, h_orig - 1, w_orig, h_orig)).resize((w_orig, -shift_y))
+    orig_centered.paste(bot_strip, (0, h_orig + shift_y))
+else:
+    orig_centered = raw_orig
+
+# Save the centered static image back
+orig_centered.save(src_path, quality=95)
+
+base_512 = orig_centered.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
 pix = base_512.load()
 
 # 2. Extract pixel-perfect mask for the white emblem
@@ -107,18 +139,18 @@ for i in range(TOTAL_FRAMES):
         m_int = int(240 - 100 * blast_t)
         t_int = int(255 - 80 * blast_t)
 
-        # Shockwave rings expanding into background behind emblem
+        # Shockwave rings expanding into background behind centered emblem
         sw_layer = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
         sw_draw = ImageDraw.Draw(sw_layer)
         # Ring 1
         r1 = int(70 + blast_t * 220)
         a1 = int(240 * (1.0 - blast_t))
-        sw_draw.ellipse([(255 - r1, 230 - r1), (255 + r1, 230 + r1)], outline=(255, 30, 60, a1), width=5)
+        sw_draw.ellipse([(256 - r1, 256 - r1), (256 + r1, 256 + r1)], outline=(255, 30, 60, a1), width=5)
         # Ring 2 (trailing)
         if blast_t > 0.3:
             r2 = int(50 + (blast_t - 0.3) / 0.7 * 180)
             a2 = int(200 * (1.0 - (blast_t - 0.3) / 0.7))
-            sw_draw.ellipse([(255 - r2, 230 - r2), (255 + r2, 230 + r2)], outline=(255, 70, 100, a2), width=3)
+            sw_draw.ellipse([(256 - r2, 256 - r2), (256 + r2, 256 + r2)], outline=(255, 70, 100, a2), width=3)
         frame.alpha_composite(sw_layer)
     else:
         # Phase 4: Full logo hold with proud breathing aura
@@ -159,7 +191,7 @@ for i in range(TOTAL_FRAMES):
         if slen > 0:
             glint_layer = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
             g_draw = ImageDraw.Draw(glint_layer)
-            gx, gy = 255, 421
+            gx, gy = 255, 443
             g_draw.line([(gx - slen, gy), (gx + slen, gy)], fill=(255, 255, 255, int(255 * sparkle_scale)), width=2)
             g_draw.line([(gx, gy - slen), (gx, gy + slen)], fill=(255, 255, 255, int(255 * sparkle_scale)), width=2)
             dlen = int(slen * 0.5)

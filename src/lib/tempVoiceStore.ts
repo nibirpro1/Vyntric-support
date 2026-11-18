@@ -1,6 +1,13 @@
 import fs from "fs";
 import path from "path";
 
+export interface TempChannelStatusSettings {
+  isMuted: boolean;
+  extraOwners: string[]; // User IDs who can control status panel
+  whitelist: string[];   // User IDs targeted by mute-all
+  blacklist: string[];   // User IDs immune to mute-all
+}
+
 export interface TempChannelRecord {
   channelId: string;
   guildId: string;
@@ -17,6 +24,7 @@ export interface TempChannelRecord {
   slowmode?: number;
   coOwners?: string[];
   notificationsEnabled?: boolean;
+  statusSettings?: TempChannelStatusSettings;
 }
 
 export interface TempVoiceConfig {
@@ -136,4 +144,32 @@ export function deleteTempChannel(channelId: string): void {
 export function getAllTempChannels(guildId: string): TempChannelRecord[] {
   ensureLoaded();
   return Object.values(cache.channels).filter((c) => c.guildId === guildId);
+}
+
+export function getStatusSettings(channelId: string): TempChannelStatusSettings {
+  ensureLoaded();
+  const rec = cache.channels[channelId];
+  if (!rec) {
+    return { isMuted: false, extraOwners: [], whitelist: [], blacklist: [] };
+  }
+  if (!rec.statusSettings) {
+    rec.statusSettings = { isMuted: false, extraOwners: [], whitelist: [], blacklist: [] };
+    save();
+  }
+  return rec.statusSettings;
+}
+
+export function updateStatusSettings(
+  channelId: string,
+  settings: Partial<TempChannelStatusSettings>
+): TempChannelStatusSettings {
+  ensureLoaded();
+  const rec = cache.channels[channelId];
+  if (!rec) {
+    return { isMuted: false, extraOwners: [], whitelist: [], blacklist: [] };
+  }
+  const current = rec.statusSettings || { isMuted: false, extraOwners: [], whitelist: [], blacklist: [] };
+  rec.statusSettings = { ...current, ...settings };
+  save();
+  return rec.statusSettings;
 }

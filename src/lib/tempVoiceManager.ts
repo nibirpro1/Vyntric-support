@@ -14,11 +14,14 @@ import {
 import {
   deleteTempChannel,
   getAllTempChannels,
+  getStatusSettings,
   getTempChannel,
   getTempChannelByOwner,
   getTempVoiceConfig,
   saveTempChannel,
   TempChannelRecord,
+  TempChannelStatusSettings,
+  updateStatusSettings,
 } from "./tempVoiceStore";
 
 export const INTERFACE_IMAGE_URL =
@@ -148,6 +151,80 @@ export function buildInterfacePayload(
     components: [row1, row2, row3],
   };
 }
+
+/**
+ * Builds the Status Moderation (Game / Among Us Mode) panel matching Base-Bot-1.
+ */
+export function buildStatusPanelPayload(
+  settings: TempChannelStatusSettings,
+  member: GuildMember,
+  ownerId: string
+) {
+  const allOwners = [ownerId, ...(settings.extraOwners || [])];
+  const ownerUsers = allOwners.map((id) => `<@${id}>`).join(", ") || `<@${ownerId}>`;
+
+  const whitelistUsers =
+    settings.whitelist?.length > 0
+      ? settings.whitelist.map((id) => `<@${id}>`).join(", ")
+      : "None";
+  const blacklistUsers =
+    settings.blacklist?.length > 0
+      ? settings.blacklist.map((id) => `<@${id}>`).join(", ")
+      : "None";
+
+  const embed = new EmbedBuilder()
+    .setTitle("🎮 Status Moderation (Game Mode)")
+    .setDescription(
+      "Manage voice channel mute states and gaming permissions.\n\n" +
+      `**🔇 Muted:** ${settings.isMuted ? "Yes 🔇" : "No 🔊"}\n` +
+      `**👑 Owners:** ${ownerUsers}\n` +
+      `**🎯 Whitelist (Targeted):** ${whitelistUsers}\n` +
+      `**🛡️ Blacklist (Immune):** ${blacklistUsers}\n\n` +
+      "*Use the buttons below to control the game session.*"
+    )
+    .setColor(settings.isMuted ? 0xff0000 : 0x00ff00)
+    .setTimestamp()
+    .setFooter({
+      text: `Requested by ${member.user.username}`,
+      iconURL: member.user.displayAvatarURL(),
+    });
+
+  const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("status_mute_toggle")
+      .setLabel(settings.isMuted ? "Unmute All" : "Mute All")
+      .setStyle(settings.isMuted ? ButtonStyle.Success : ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("status_whitelist")
+      .setLabel("Whitelist")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("status_blacklist")
+      .setLabel("Blacklist")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("status_extraowner")
+      .setLabel("Extra Owner")
+      .setEmoji("👑")
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("status_endgame")
+      .setLabel("End Game")
+      .setEmoji("🏁")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return { embeds: [embed], components: [row1, row2] };
+}
+
+// Track 5-minute delayed ownership transfers when owner disconnects: channelId -> timer & ownerId
+export const ownerLeaveTimers = new Map<
+  string,
+  { timeout: NodeJS.Timeout; ownerId: string }
+>();
 
 /**
  * Live updates the interactive control panel embed in the VC text chat.
@@ -306,6 +383,12 @@ export async function handleTempVoiceStateUpdate(
         trustedUserIds: [],
         blockedUserIds: [],
         waitingRoomChannelId: null,
+        statusSettings: {
+          isMuted: false,
+          extraOwners: [],
+          whitelist: [],
+          blacklist: [],
+        },
       };
 
       // Post the Control Panel directly in the newly created voice channel's chat!
@@ -381,6 +464,14 @@ export async function handleTempVoiceStateUpdate(
   ) {
     const tempRecord = getTempChannel(newState.channelId);
     if (tempRecord) {
+      // If the owner rejoined, cancel any pending delayed ownership transfer!
+      const pendingTimer = ownerLeaveTimers.get(newState.channelId);
+      if (pendingTimer && pendingTimer.ownerId === member.id) {
+        clearTimeout(pendingTimer.timeout);
+        ownerLeaveTimers.delete(newState.channelId);
+        console.log(`[tempvoice] Owner ${member.user.tag} returned within 5m grace period. Auto-transfer cancelled.`);
+      }
+
       const ch = newState.channel as VoiceChannel | null;
       if (ch) {
         const joinMsg = await ch
@@ -409,7 +500,13 @@ export async function handleTempVoiceStateUpdate(
         .catch(() => null)) as VoiceChannel | null;
 
       if (!oldChannel || oldChannel.members.size === 0) {
-        // Channel is completely empty -> delete it
+        // Channel is completely empty -> cancel any pending transfer timer & delete
+        const pending = ownerLeaveTimers.get(tempRecord.channelId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          ownerLeaveTimers.delete(tempRecord.channelId);
+        }
+
         if (oldChannel) {
           await oldChannel.delete("TempVoice: Channel is empty").catch(() => {});
         }
@@ -436,14 +533,70 @@ export async function handleTempVoiceStateUpdate(
           .catch(() => null);
         if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
 
-        // If the owner left, notify members they can claim ownership
+        // If the owner left (and room is not empty), start 5-minute auto-transfer grace period
         if (member.id === tempRecord.ownerId) {
+          const existingTimer = ownerLeaveTimers.get(tempRecord.channelId);
+          if (existingTimer) clearTimeout(existingTimer.timeout);
+
           const claimNotice = await oldChannel
             .send({
-              content: `👑 **Room Owner left!** Any member can press **👑 CLAIM** on the interface to take ownership.`,
+              content: `👑 **Room Owner left!** If they do not return within **5 minutes**, ownership will automatically transfer to an active member (or press **👑 CLAIM** to claim now).`,
             })
             .catch(() => null);
-          if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 15000);
+          if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 20000);
+
+          const timeout = setTimeout(async () => {
+            ownerLeaveTimers.delete(tempRecord.channelId);
+            try {
+              const targetCh = (await guild.channels
+                .fetch(tempRecord.channelId)
+                .catch(() => null)) as VoiceChannel | null;
+              if (!targetCh || !targetCh.isVoiceBased() || targetCh.members.size === 0) return;
+
+              const currentRec = getTempChannel(targetCh.id);
+              if (!currentRec || currentRec.ownerId !== member.id) return;
+              if (targetCh.members.has(member.id)) return; // Owner rejoined
+
+              const newOwner =
+                targetCh.members.filter((m) => !m.user.bot).first() ||
+                targetCh.members.first();
+              if (!newOwner) return;
+
+              currentRec.ownerId = newOwner.id;
+              saveTempChannel(currentRec);
+
+              // Rename channel
+              const cleanName =
+                newOwner.displayName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "User";
+              await targetCh.setName(`! ${cleanName}'s Channel`).catch(() => {});
+
+              // Grant full control permissions to new owner
+              await targetCh.permissionOverwrites.edit(newOwner.id, {
+                ViewChannel: true,
+                Connect: true,
+                Speak: true,
+                Stream: true,
+                SendMessages: true,
+                ReadMessageHistory: true,
+                ManageChannels: true,
+                MoveMembers: true,
+                MuteMembers: true,
+                DeafenMembers: true,
+                PrioritySpeaker: true,
+              }).catch(() => {});
+
+              void updateVoiceChannelInterface(guild, targetCh.id);
+              await targetCh
+                .send({
+                  content: `👑 **Ownership Auto-Transferred:** ${newOwner.user} is now the channel owner (previous owner was inactive for 5 minutes).`,
+                })
+                .catch(() => {});
+            } catch (e) {
+              console.error("[tempvoice:delayed_transfer:error]", e);
+            }
+          }, 5 * 60 * 1000);
+
+          ownerLeaveTimers.set(tempRecord.channelId, { timeout, ownerId: member.id });
         }
 
         // Update live interface embed

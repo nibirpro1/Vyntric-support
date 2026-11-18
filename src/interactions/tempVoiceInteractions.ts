@@ -18,11 +18,16 @@ import {
 } from "discord.js";
 import {
   deleteTempChannel,
+  getStatusSettings,
   getTempChannel,
   saveTempChannel,
   TempChannelRecord,
+  updateStatusSettings,
 } from "../lib/tempVoiceStore";
-import { updateVoiceChannelInterface } from "../lib/tempVoiceManager";
+import {
+  buildStatusPanelPayload,
+  updateVoiceChannelInterface,
+} from "../lib/tempVoiceManager";
 
 /**
  * Validates whether the user is in a temporary channel and whether they are authorized.
@@ -173,8 +178,134 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
 
     const { channel, tempRecord, isOwner, member } = ctx;
 
+    // ── STATUS MODERATION / GAME MODE BUTTONS (Base-Bot-1) ──
+    if (customId.startsWith("status_")) {
+      const settings = getStatusSettings(channel.id);
+      const isExtraOwner = settings.extraOwners?.includes(member.id);
+
+      if (!isOwner && !isExtraOwner) {
+        await interaction.reply({
+          content: "❌ Only the channel owner or extra owners can control the Game Status panel!",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      switch (customId) {
+        case "status_mute_toggle": {
+          settings.isMuted = !settings.isMuted;
+          updateStatusSettings(channel.id, settings);
+
+          const members = channel.members;
+          const whitelist = settings.whitelist || [];
+          const blacklist = settings.blacklist || [];
+
+          for (const [id, m] of members) {
+            // Blacklist = immune to mute (never muted, always can speak)
+            if (blacklist.includes(id)) {
+              await m.voice.setMute(false).catch(() => {});
+              continue;
+            }
+
+            if (settings.isMuted) {
+              if (whitelist.length > 0) {
+                // If whitelist has people, only mute those specific users
+                if (whitelist.includes(id)) {
+                  await m.voice.setMute(true).catch(() => {});
+                } else {
+                  await m.voice.setMute(false).catch(() => {});
+                }
+              } else {
+                // Mute all (except blacklist)
+                await m.voice.setMute(true).catch(() => {});
+              }
+            } else {
+              // Unmute all
+              await m.voice.setMute(false).catch(() => {});
+            }
+          }
+
+          const panel = buildStatusPanelPayload(settings, member, tempRecord.ownerId);
+          await interaction.update(panel);
+          return;
+        }
+
+        case "status_whitelist": {
+          const select = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId("status_whitelist_select")
+              .setPlaceholder("Select users to whitelist (targeted for mute)")
+              .setMinValues(0)
+              .setMaxValues(25)
+              .setDefaultUsers(settings.whitelist || [])
+          );
+          await interaction.reply({
+            content: "🎯 **Whitelist:** Select users who should be muted when Mute is active:",
+            components: [select],
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        case "status_blacklist": {
+          const select = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId("status_blacklist_select")
+              .setPlaceholder("Select users to blacklist (immune to mute)")
+              .setMinValues(0)
+              .setMaxValues(25)
+              .setDefaultUsers(settings.blacklist || [])
+          );
+          await interaction.reply({
+            content: "🛡️ **Blacklist:** Select users who should NEVER be muted (immune):",
+            components: [select],
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        case "status_extraowner": {
+          const select = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId("status_extraowner_select")
+              .setPlaceholder("Select users as extra owners")
+              .setMinValues(0)
+              .setMaxValues(25)
+              .setDefaultUsers(settings.extraOwners || [])
+          );
+          await interaction.reply({
+            content: "👑 **Extra Owners:** Select co-owners who can control this status panel:",
+            components: [select],
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        case "status_endgame": {
+          settings.whitelist = [];
+          settings.blacklist = [];
+          settings.extraOwners = [];
+          settings.isMuted = false;
+          updateStatusSettings(channel.id, settings);
+
+          for (const [id, m] of channel.members) {
+            await m.voice.setMute(false).catch(() => {});
+          }
+
+          if (interaction.message) {
+            await interaction.message.delete().catch(() => {});
+          }
+          await interaction.reply({
+            content: "🏁 **Game Ended!** All game data cleared and everyone has been unmuted.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+      }
+    }
+
     // A. CLAIM BUTTON (Allowed when owner left)
-    if (customId === "voice_claim_button" || customId === "tv_btn_claim") {
+    if (customId === "voice_claim_button" || customId === "tv_btn_claim" || customId === "jtc_claim") {
       if (isOwner) {
         await interaction.reply({
           content: "❌ You are already the owner of this voice channel!",
@@ -275,9 +406,17 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       return;
     }
 
-    // 3. PRIVACY (Toggle Lock/Unlock)
-    if (customId === "voice_privacy_button" || customId === "tv_btn_privacy") {
-      if (!tempRecord.isLocked) {
+    // 3. PRIVACY (Toggle Lock/Unlock, or direct jtc_lock / jtc_unlock)
+    if (
+      customId === "voice_privacy_button" ||
+      customId === "tv_btn_privacy" ||
+      customId === "jtc_lock" ||
+      customId === "jtc_unlock"
+    ) {
+      const shouldLock =
+        customId === "jtc_lock" ? true : customId === "jtc_unlock" ? false : !tempRecord.isLocked;
+
+      if (shouldLock) {
         // Lock channel
         await channel.permissionOverwrites.edit(interaction.guild!.id, {
           Connect: false,
@@ -314,6 +453,33 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
           flags: MessageFlags.Ephemeral,
         });
       }
+      return;
+    }
+
+    // 3.5 HIDE / UNHIDE (Ghost / Stealth mode from Base-Bot-1)
+    if (customId === "jtc_hide" || customId === "jtc_unhide") {
+      const shouldHide = customId === "jtc_hide";
+      await channel.permissionOverwrites.edit(interaction.guild!.id, {
+        ViewChannel: !shouldHide,
+      });
+
+      // Keep channel accessible to trusted users and owner
+      for (const tId of tempRecord.trustedUserIds) {
+        await channel.permissionOverwrites
+          .edit(tId, { ViewChannel: true, Connect: true })
+          .catch(() => {});
+      }
+
+      tempRecord.isHidden = shouldHide;
+      saveTempChannel(tempRecord);
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
+
+      await interaction.reply({
+        content: shouldHide
+          ? "👁️ **Channel Hidden!** Regular members cannot see this voice channel."
+          : "👀 **Channel Unhidden!** Regular members can see this channel in the list.",
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 
@@ -450,12 +616,26 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       return;
     }
 
-    // 9. KICK (StringSelect Menu of current members in VC)
-    if (customId === "voice_kick_button" || customId === "tv_btn_kick") {
+    // 9. KICK (StringSelect or UserSelect)
+    if (customId === "voice_kick_button" || customId === "tv_btn_kick" || customId === "jtc_kick") {
       const otherMembers = channel.members.filter((m) => m.id !== member.id);
       if (otherMembers.size === 0) {
         await interaction.reply({
           content: "⚠️ There are no other members in your voice channel to kick.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (customId === "jtc_kick") {
+        const userSelect = new UserSelectMenuBuilder()
+          .setCustomId("jtc_kick_select")
+          .setPlaceholder("Select a user to kick...")
+          .setMaxValues(1);
+        const row = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(userSelect);
+        await interaction.reply({
+          content: "👢 **Kick Member:** Select a user to kick from this channel:",
+          components: [row],
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -510,7 +690,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // 11. BLOCK (UserSelect Menu)
-    if (customId === "voice_block_button" || customId === "tv_btn_block") {
+    if (customId === "voice_block_button" || customId === "tv_btn_block" || customId === "jtc_block") {
       const userSelect = new UserSelectMenuBuilder()
         .setCustomId("tv_select_block")
         .setPlaceholder("Select a member to block...")
@@ -526,7 +706,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // 12. UNBLOCK (UserSelect Menu)
-    if (customId === "voice_unblock_button" || customId === "tv_btn_unblock") {
+    if (customId === "voice_unblock_button" || customId === "tv_btn_unblock" || customId === "jtc_unblock") {
       const userSelect = new UserSelectMenuBuilder()
         .setCustomId("tv_select_unblock")
         .setPlaceholder("Select a member to unblock...")
@@ -542,7 +722,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // 13. TRANSFER (UserSelect Menu)
-    if (customId === "voice_transfer_button" || customId === "tv_btn_transfer") {
+    if (customId === "voice_transfer_button" || customId === "tv_btn_transfer" || customId === "jtc_transfer") {
       const userSelect = new UserSelectMenuBuilder()
         .setCustomId("tv_select_transfer")
         .setPlaceholder("Select a new channel owner...")
@@ -639,7 +819,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
   // ─────────────────────────────────────────────────────────────
   if (interaction.isUserSelectMenu()) {
     const ctx = resolveUserTempChannel(interaction);
-    if (ctx.error || !ctx.channel || !ctx.tempRecord || !ctx.isOwner) {
+    if (ctx.error || !ctx.channel || !ctx.tempRecord || !ctx.member) {
       await interaction.reply({
         content: ctx.error || "❌ You are not authorized to manage this channel.",
         flags: MessageFlags.Ephemeral,
@@ -647,8 +827,80 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       return;
     }
 
-    const { channel, tempRecord } = ctx;
+    const { channel, tempRecord, isOwner, member } = ctx;
+
+    // ── STATUS MODERATION SELECT MENUS (Game Mode) ──
+    if (interaction.customId.startsWith("status_")) {
+      const settings = getStatusSettings(channel.id);
+      const isExtraOwner = settings.extraOwners?.includes(member.id);
+
+      if (!isOwner && !isExtraOwner) {
+        await interaction.reply({
+          content: "❌ Only the channel owner or extra owners can configure Game Status settings!",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (interaction.customId === "status_whitelist_select") {
+        settings.whitelist = interaction.values;
+        updateStatusSettings(channel.id, settings);
+        await interaction.reply({
+          content: `🎯 **Whitelist updated!** ${interaction.values.length} user(s) targeted for mute.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (interaction.customId === "status_blacklist_select") {
+        settings.blacklist = interaction.values;
+        updateStatusSettings(channel.id, settings);
+        await interaction.reply({
+          content: `🛡️ **Blacklist updated!** ${interaction.values.length} user(s) immune to mute.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (interaction.customId === "status_extraowner_select") {
+        settings.extraOwners = interaction.values;
+        updateStatusSettings(channel.id, settings);
+        await interaction.reply({
+          content: `👑 **Extra owners updated!** ${interaction.values.length} user(s) added as panel managers.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
+
+    if (!isOwner) {
+      await interaction.reply({
+        content: `❌ Only the channel owner (<@${tempRecord.ownerId}>) can use this control!`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const targetUserId = interaction.values[0];
+
+    // JTC Kick via UserSelect
+    if (interaction.customId === "jtc_kick_select") {
+      const targetMember = await interaction.guild!.members.fetch(targetUserId).catch(() => null);
+      if (targetMember && targetMember.voice.channelId === channel.id) {
+        await targetMember.voice.disconnect("Kicked from JTC").catch(() => {});
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
+        await interaction.reply({
+          content: `👢 Successfully kicked <@${targetUserId}> from the voice channel!`,
+          flags: MessageFlags.Ephemeral,
+        });
+      } else {
+        await interaction.reply({
+          content: "⚠️ That user is not currently connected to your voice channel.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return;
+    }
 
     // Trust
     if (interaction.customId === "tv_select_trust") {
@@ -723,7 +975,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // Block
-    if (interaction.customId === "tv_select_block") {
+    if (interaction.customId === "tv_select_block" || interaction.customId === "jtc_block_select") {
       if (!tempRecord.blockedUserIds.includes(targetUserId)) {
         tempRecord.blockedUserIds.push(targetUserId);
       }
@@ -749,7 +1001,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // Unblock
-    if (interaction.customId === "tv_select_unblock") {
+    if (interaction.customId === "tv_select_unblock" || interaction.customId === "jtc_unblock_select") {
       tempRecord.blockedUserIds = tempRecord.blockedUserIds.filter((id) => id !== targetUserId);
       saveTempChannel(tempRecord);
 
@@ -764,7 +1016,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     }
 
     // Transfer
-    if (interaction.customId === "tv_select_transfer") {
+    if (interaction.customId === "tv_select_transfer" || interaction.customId === "jtc_transfer_select") {
       if (targetUserId === interaction.user.id) {
         await interaction.update({
           content: "❌ You already own this channel.",

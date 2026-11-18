@@ -25,6 +25,7 @@ export interface TempChannelRecord {
   coOwners?: string[];
   notificationsEnabled?: boolean;
   statusSettings?: TempChannelStatusSettings;
+  memberJoinOrder?: string[]; // Chronological list of user IDs who joined
 }
 
 export interface TempVoiceConfig {

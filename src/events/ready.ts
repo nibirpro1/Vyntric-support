@@ -118,5 +118,13 @@ export default {
     } catch (err) {
       console.error("[chatWelcomeCleaner:init:error]", err);
     }
+
+    // Initialize TempVoice JTC empty channel auto-sweep and heartbeat
+    try {
+      const { initTempVoice } = require("../lib/tempVoiceManager");
+      initTempVoice(client);
+    } catch (err) {
+      console.error("[tempvoice:init:error]", err);
+    }
   },
 };

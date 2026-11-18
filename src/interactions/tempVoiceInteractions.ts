@@ -26,6 +26,7 @@ import {
 } from "../lib/tempVoiceStore";
 import {
   buildStatusPanelPayload,
+  ownerLeaveTimers,
   updateVoiceChannelInterface,
 } from "../lib/tempVoiceManager";
 
@@ -324,9 +325,21 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         return;
       }
 
-      // Claim success
+      // Claim success: cancel any pending 5-minute auto-transfer countdown
+      const pendingTimer = ownerLeaveTimers.get(channel.id);
+      if (pendingTimer) {
+        clearTimeout(pendingTimer.timeout);
+        ownerLeaveTimers.delete(channel.id);
+      }
+
       const oldOwnerId = tempRecord.ownerId;
       tempRecord.ownerId = member.id;
+      if (tempRecord.memberJoinOrder) {
+        tempRecord.memberJoinOrder = [
+          member.id,
+          ...tempRecord.memberJoinOrder.filter((id) => id !== member.id && id !== oldOwnerId),
+        ];
+      }
       saveTempChannel(tempRecord);
 
       // Update Discord channel overwrites

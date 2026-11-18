@@ -23,6 +23,7 @@ import {
   TempChannelStatusSettings,
   updateStatusSettings,
 } from "./tempVoiceStore";
+import { VyntricClient } from "../structures/VyntricClient";
 
 export const INTERFACE_IMAGE_URL =
   "https://tempvoice.xyz/api/v2/canvas?language=en&features=voice_rename_button,voice_limit_button,voice_privacy_button,voice_waiting_button,voice_thread_button,voice_trust_button,voice_untrust_button,voice_invite_button,voice_kick_button,voice_region_button,voice_block_button,voice_unblock_button,voice_claim_button,voice_transfer_button,voice_close_button&quality=2&max";
@@ -387,6 +388,7 @@ export async function handleTempVoiceStateUpdate(
         trustedUserIds: [],
         blockedUserIds: [],
         waitingRoomChannelId: null,
+        memberJoinOrder: [member.id],
         statusSettings: {
           isMuted: false,
           extraOwners: [],
@@ -468,12 +470,33 @@ export async function handleTempVoiceStateUpdate(
   ) {
     const tempRecord = getTempChannel(newState.channelId);
     if (tempRecord) {
+      // Record join order chronologically (excluding bots)
+      if (!member.user.bot) {
+        if (!tempRecord.memberJoinOrder) {
+          tempRecord.memberJoinOrder = [tempRecord.ownerId];
+        }
+        if (!tempRecord.memberJoinOrder.includes(member.id)) {
+          tempRecord.memberJoinOrder.push(member.id);
+          saveTempChannel(tempRecord);
+        }
+      }
+
       // If the owner rejoined, cancel any pending delayed ownership transfer!
       const pendingTimer = ownerLeaveTimers.get(newState.channelId);
       if (pendingTimer && pendingTimer.ownerId === member.id) {
         clearTimeout(pendingTimer.timeout);
         ownerLeaveTimers.delete(newState.channelId);
         console.log(`[tempvoice] Owner ${member.user.tag} returned within 5m grace period. Auto-transfer cancelled.`);
+
+        const ch = newState.channel as VoiceChannel | null;
+        if (ch) {
+          const cancelMsg = await ch
+            .send({
+              content: `👑 **Welcome back <@${member.id}>!** You returned within the 5-minute window; ownership retained.`,
+            })
+            .catch(() => null);
+          if (cancelMsg) setTimeout(() => cancelMsg.delete().catch(() => {}), 10_000);
+        }
       }
 
       const ch = newState.channel as VoiceChannel | null;
@@ -503,8 +526,15 @@ export async function handleTempVoiceStateUpdate(
         .fetch(oldState.channelId)
         .catch(() => null)) as VoiceChannel | null;
 
-      if (!oldChannel || oldChannel.members.size === 0) {
-        // Channel is completely empty -> cancel any pending transfer timer & delete
+      // Filter remaining human members, explicitly excluding the departing member and bots
+      const remainingHumans = oldChannel
+        ? oldChannel.members.filter((m) => m.id !== member.id && !m.user.bot)
+        : null;
+
+      const isChannelEmpty = !oldChannel || !remainingHumans || remainingHumans.size === 0;
+
+      if (isChannelEmpty) {
+        // Voice channel is deleted immediately if there's no one in the voice channel
         const pending = ownerLeaveTimers.get(tempRecord.channelId);
         if (pending) {
           clearTimeout(pending.timeout);
@@ -532,19 +562,34 @@ export async function handleTempVoiceStateUpdate(
         // Channel still has members
         const leaveMsg = await oldChannel
           .send({
-            content: `🚪 **${member.displayName}** left the voice room. (${oldChannel.members.size} members)`,
+            content: `🚪 **${member.displayName}** left the voice room. (${remainingHumans.size} member${remainingHumans.size === 1 ? "" : "s"} remaining)`,
           })
           .catch(() => null);
         if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
 
-        // If the owner left (and room is not empty), start 5-minute auto-transfer grace period
+        // If a non-owner member left, remove them from the join order list
+        if (member.id !== tempRecord.ownerId && tempRecord.memberJoinOrder) {
+          tempRecord.memberJoinOrder = tempRecord.memberJoinOrder.filter((id) => id !== member.id);
+          saveTempChannel(tempRecord);
+        }
+
+        // If the owner left (and room is not empty), start 5-minute auto-transfer to the 2nd person who joined
         if (member.id === tempRecord.ownerId) {
           const existingTimer = ownerLeaveTimers.get(tempRecord.channelId);
           if (existingTimer) clearTimeout(existingTimer.timeout);
 
+          // Find the 2nd person who joined after the owner
+          const nextInLineId =
+            tempRecord.memberJoinOrder?.find(
+              (id) =>
+                id !== member.id &&
+                oldChannel.members.has(id) &&
+                !oldChannel.members.get(id)?.user.bot
+            ) || remainingHumans.first()?.id;
+
           const claimNotice = await oldChannel
             .send({
-              content: `👑 **Room Owner left!** If they do not return within **5 minutes**, ownership will automatically transfer to an active member (or press **👑 CLAIM** to claim now).`,
+              content: `👑 **Room Owner left!** <@${tempRecord.ownerId}> has **5 minutes** to return. If they do not return, ownership will automatically transfer to the 2nd person who joined (<@${nextInLineId}>).`,
             })
             .catch(() => null);
           if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 20000);
@@ -555,18 +600,48 @@ export async function handleTempVoiceStateUpdate(
               const targetCh = (await guild.channels
                 .fetch(tempRecord.channelId)
                 .catch(() => null)) as VoiceChannel | null;
-              if (!targetCh || !targetCh.isVoiceBased() || targetCh.members.size === 0) return;
+              
+              const activeHumans = targetCh
+                ? targetCh.members.filter((m) => !m.user.bot)
+                : null;
+
+              if (!targetCh || !targetCh.isVoiceBased() || !activeHumans || activeHumans.size === 0) {
+                if (targetCh) await targetCh.delete("TempVoice: Empty channel").catch(() => {});
+                deleteTempChannel(tempRecord.channelId);
+                return;
+              }
 
               const currentRec = getTempChannel(targetCh.id);
               if (!currentRec || currentRec.ownerId !== member.id) return;
               if (targetCh.members.has(member.id)) return; // Owner rejoined
 
-              const newOwner =
-                targetCh.members.filter((m) => !m.user.bot).first() ||
-                targetCh.members.first();
+              // Select the 2nd person who joined after the owner!
+              let newOwnerId: string | undefined = currentRec.memberJoinOrder?.find(
+                (id) =>
+                  id !== member.id &&
+                  targetCh.members.has(id) &&
+                  !targetCh.members.get(id)?.user.bot
+              );
+
+              // Fallback if not found in join order
+              if (!newOwnerId) {
+                newOwnerId = activeHumans.first()?.id;
+              }
+              if (!newOwnerId) return;
+
+              const newOwner = targetCh.members.get(newOwnerId);
               if (!newOwner) return;
 
-              currentRec.ownerId = newOwner.id;
+              const oldOwnerId = currentRec.ownerId;
+              currentRec.ownerId = newOwnerId;
+              if (currentRec.memberJoinOrder) {
+                currentRec.memberJoinOrder = [
+                  newOwnerId,
+                  ...currentRec.memberJoinOrder.filter(
+                    (id) => id !== newOwnerId && id !== oldOwnerId
+                  ),
+                ];
+              }
               saveTempChannel(currentRec);
 
               // Rename channel
@@ -575,24 +650,32 @@ export async function handleTempVoiceStateUpdate(
               await targetCh.setName(`! ${cleanName}'s Channel`).catch(() => {});
 
               // Grant full control permissions to new owner
-              await targetCh.permissionOverwrites.edit(newOwner.id, {
-                ViewChannel: true,
-                Connect: true,
-                Speak: true,
-                Stream: true,
-                SendMessages: true,
-                ReadMessageHistory: true,
-                ManageChannels: true,
-                MoveMembers: true,
-                MuteMembers: true,
-                DeafenMembers: true,
-                PrioritySpeaker: true,
-              }).catch(() => {});
+              await targetCh.permissionOverwrites
+                .edit(newOwnerId, {
+                  ViewChannel: true,
+                  Connect: true,
+                  Speak: true,
+                  Stream: true,
+                  SendMessages: true,
+                  ReadMessageHistory: true,
+                  ManageChannels: true,
+                  MoveMembers: true,
+                  MuteMembers: true,
+                  DeafenMembers: true,
+                  PrioritySpeaker: true,
+                })
+                .catch(() => {});
+
+              // Remove previous owner's specific manage permissions
+              if (oldOwnerId) {
+                await targetCh.permissionOverwrites.delete(oldOwnerId).catch(() => {});
+              }
 
               void updateVoiceChannelInterface(guild, targetCh.id);
+
               await targetCh
                 .send({
-                  content: `👑 **Ownership Auto-Transferred:** ${newOwner.user} is now the channel owner (previous owner was inactive for 5 minutes).`,
+                  content: `👑 **Ownership Auto-Transferred:** <@${newOwnerId}> (2nd person who joined after the owner) is now the channel owner because <@${oldOwnerId}> was inactive for 5 minutes.`,
                 })
                 .catch(() => {});
             } catch (e) {
@@ -610,4 +693,69 @@ export async function handleTempVoiceStateUpdate(
       console.error("[tempvoice:j2c:leave:error]", err);
     }
   }
+}
+
+/**
+ * Sweeps and deletes any temporary voice channels that are currently empty.
+ * Guarantees that empty temporary channels are never left behind.
+ */
+export async function sweepEmptyTempChannels(client: VyntricClient): Promise<number> {
+  let totalDeleted = 0;
+  for (const guild of client.guilds.cache.values()) {
+    const config = getTempVoiceConfig(guild.id);
+    if (!config.enabled) continue;
+
+    const allRecords = getAllTempChannels(guild.id);
+    for (const record of allRecords) {
+      try {
+        const channel = (await guild.channels
+          .fetch(record.channelId)
+          .catch(() => null)) as VoiceChannel | null;
+
+        const humanCount = channel
+          ? channel.members.filter((m) => !m.user.bot).size
+          : 0;
+
+        if (!channel || humanCount === 0) {
+          const pending = ownerLeaveTimers.get(record.channelId);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            ownerLeaveTimers.delete(record.channelId);
+          }
+          if (channel) {
+            await channel
+              .delete("TempVoice: Auto-sweep empty voice channel")
+              .catch(() => {});
+          }
+          if (record.waitingRoomChannelId) {
+            const wr = await guild.channels
+              .fetch(record.waitingRoomChannelId)
+              .catch(() => null);
+            if (wr)
+              await wr.delete("TempVoice: Main channel deleted").catch(() => {});
+          }
+          deleteTempChannel(record.channelId);
+          totalDeleted++;
+        }
+      } catch (err) {
+        console.error(`[tempvoice:sweep:${record.channelId}]`, err);
+      }
+    }
+  }
+  return totalDeleted;
+}
+
+/**
+ * Initializes TempVoice heartbeat:
+ * 1. Sweeps empty channels on startup.
+ * 2. Runs an empty channel check every 30 seconds to guarantee no empty voice channel remains.
+ */
+export function initTempVoice(client: VyntricClient) {
+  sweepEmptyTempChannels(client).catch((err) =>
+    console.error("[tempvoice:initSweep:error]", err)
+  );
+
+  setInterval(() => {
+    sweepEmptyTempChannels(client).catch(() => {});
+  }, 30_000);
 }

@@ -197,11 +197,8 @@ export function removeGiveawayEntry(
   const g = store[messageId];
   if (!g || g.ended) return null;
 
-  const idx = g.entries.indexOf(userId);
-  if (idx >= 0) {
-    g.entries.splice(idx, 1);
-    persist();
-  }
+  // Strict "No Kick / No Removal" server policy:
+  // Once a member enters a giveaway, their entry is permanent and can never be removed or kicked.
   return { success: true, entriesCount: g.entries.length };
 }
 
@@ -212,17 +209,11 @@ export function toggleGiveawayEntry(
   const g = store[messageId];
   if (!g || g.ended) return null;
 
-  const idx = g.entries.indexOf(userId);
-  let entered = false;
-  if (idx >= 0) {
-    // Leave
-    g.entries.splice(idx, 1);
-    entered = false;
-  } else {
-    // Join
+  // Strict "No Kick / No Removal" server policy:
+  // Ensure toggling is ADD-ONLY.
+  if (!g.entries.includes(userId)) {
     g.entries.push(userId);
-    entered = true;
+    persist();
   }
-  persist();
-  return { entered, entriesCount: g.entries.length };
+  return { entered: true, entriesCount: g.entries.length };
 }

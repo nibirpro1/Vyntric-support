@@ -4,8 +4,10 @@ import {
   ButtonInteraction,
   ButtonStyle,
   EmbedBuilder,
+  Message,
   MessageFlags,
   TextChannel,
+  ThreadChannel,
 } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 import { BRAND } from "./brand";
@@ -343,6 +345,52 @@ export function scheduleGiveawayTimer(g: Giveaway, client: VyntricClient) {
 }
 
 /**
+ * Retrieves or initializes a persistent Discord thread on the giveaway message.
+ * This guarantees that even across bot restarts, container redeploys, or file wipes,
+ * every participant ID is permanently recorded directly inside Discord.
+ */
+export async function getOrCreateGiveawayThread(
+  channel: TextChannel,
+  msg: any,
+  g: Giveaway
+): Promise<ThreadChannel | null> {
+  try {
+    if (msg.hasThread && msg.thread) {
+      if (msg.thread.archived) await msg.thread.setArchived(false).catch(() => {});
+      return msg.thread;
+    }
+    const threadName = `entries-${g.messageId}`;
+    const active = await channel.threads.fetchActive().catch(() => null);
+    const existing =
+      active?.threads.get(g.messageId) || active?.threads.find((t) => t.name === threadName);
+    if (existing) {
+      if (existing.archived) await existing.setArchived(false).catch(() => {});
+      return existing;
+    }
+
+    const archived = await channel.threads.fetchArchived().catch(() => null);
+    const existingArchived =
+      archived?.threads.get(g.messageId) || archived?.threads.find((t) => t.name === threadName);
+    if (existingArchived) {
+      if (existingArchived.archived) await existingArchived.setArchived(false).catch(() => {});
+      return existingArchived;
+    }
+
+    const thread = await msg
+      .startThread({
+        name: threadName,
+        autoArchiveDuration: 1440,
+        reason: "Giveaway entries permanent sync",
+      })
+      .catch(() => null);
+
+    return thread;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Scans giveaway channels on startup or periodically to ensure any giveaways
  * created while the bot was offline or whose store was reset are restored and ended correctly.
  */
@@ -383,6 +431,39 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
 
           let g: Giveaway | undefined = getGiveaway(msgId);
 
+          // Discovered entries from all sources: existing store + reactions + thread
+          const entrySet = new Set<string>(g?.entries || []);
+
+          // 1. Recover from reactions (add-only)
+          const reaction = msg.reactions.cache.get("🎉");
+          if (reaction) {
+            const users = await reaction.users.fetch({ limit: 100 }).catch(() => null);
+            if (users) {
+              users.forEach((u) => {
+                if (!u.bot) entrySet.add(u.id);
+              });
+            }
+          }
+
+          // 2. Recover from Discord thread if present
+          try {
+            const thread =
+              msg.thread ||
+              (await channel.threads.fetch(msgId).catch(() => null)) ||
+              (await channel.threads.fetchActive().catch(() => null))?.threads.get(msgId);
+            if (thread) {
+              const threadMsgs = await thread.messages.fetch({ limit: 100 }).catch(() => null);
+              if (threadMsgs) {
+                for (const tm of threadMsgs.values()) {
+                  const match = tm.content.match(/<@!?(\d+)>/);
+                  if (match && match[1] !== client.user?.id) {
+                    entrySet.add(match[1]);
+                  }
+                }
+              }
+            }
+          } catch {}
+
           if (!g) {
             const prize = embed.title?.replace(/🎁/g, "").trim() || "Giveaway Prize";
             const winnersMatch = embed.description?.match(/Winners:\*\*\s*`?(\d+)`?/i);
@@ -395,18 +476,6 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
 
             const hostMatch = embed.description?.match(/Hosted by:\*\*\s*<@!?(\d+)>/i);
             const hostId = hostMatch ? hostMatch[1] : msg.author.id;
-
-            // Recover entries from reactions
-            const reaction = msg.reactions.cache.get("🎉");
-            const entrySet = new Set<string>();
-            if (reaction) {
-              const users = await reaction.users.fetch({ limit: 100 }).catch(() => null);
-              if (users) {
-                users.forEach((u) => {
-                  if (!u.bot) entrySet.add(u.id);
-                });
-              }
-            }
 
             g = {
               id: msgId,
@@ -427,22 +496,16 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             saveGiveaway(g);
             recoveredCount++;
           } else {
-            // Existing giveaway in store: safely union any new reaction users without ever deleting entries
-            const reaction = msg.reactions.cache.get("🎉");
-            if (reaction) {
-              const users = await reaction.users.fetch({ limit: 100 }).catch(() => null);
-              if (users) {
-                let updated = false;
-                users.forEach((u) => {
-                  if (!u.bot && !g!.entries.includes(u.id)) {
-                    g!.entries.push(u.id);
-                    updated = true;
-                  }
-                });
-                if (updated) {
-                  saveGiveaway(g);
-                }
+            // Existing giveaway: union all newly discovered entries without ever removing anyone
+            let updated = false;
+            for (const id of entrySet) {
+              if (!g.entries.includes(id)) {
+                g.entries.push(id);
+                updated = true;
               }
+            }
+            if (updated) {
+              saveGiveaway(g);
             }
           }
 
@@ -622,24 +685,32 @@ export async function handleGiveawayButton(
     if (!res) return;
 
     if (res.alreadyEntered) {
-      // User is already entered! Never remove on Enter click. Provide clear confirmation + optional leave button
-      const leaveRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`gw_leave:${messageId}`)
-          .setLabel("Opt Out / Leave Giveaway")
-          .setStyle(ButtonStyle.Danger)
-          .setEmoji("❌")
-      );
-
+      // User is already entered! Strictly enforce "No Kick / No Removal" server policy.
       await interaction.reply({
-        content: `✅ **You are already entered!** You are already participating in the giveaway for **${g.prize}**!\n-# Total Participants: **${res.entriesCount}**`,
-        components: [leaveRow],
+        content: `✅ **You are already entered!** You are actively participating in the giveaway for **${g.prize}**! Good luck! 🎉\n-# Total Participants: **${res.entriesCount}**`,
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    // Newly entered! Update the message components with new entry count
+    // Newly entered! Sync entrant ID to Discord thread backup so it survives all restarts and redeploys
+    const targetChannel = interaction.guild?.channels.cache.get(g.channelId) as TextChannel | undefined;
+    if (targetChannel && interaction.message) {
+      getOrCreateGiveawayThread(targetChannel, interaction.message, g)
+        .then(async (thread) => {
+          if (thread) {
+            await thread
+              .send({
+                content: `🎉 <@${interaction.user.id}> entered the giveaway! (Entry #${res.entriesCount})`,
+                allowedMentions: { parse: [] },
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Update the message components with new entry count
     try {
       await interaction.message.edit({
         embeds: [buildGiveawayEmbed(g)],
@@ -656,40 +727,12 @@ export async function handleGiveawayButton(
     return;
   }
 
-  // Handle explicit Leave request
+  // Handle explicit Leave request (strictly disabled per server policy)
   if (customId.startsWith("gw_leave")) {
-    const rawId = customId.replace("gw_leave:", "").replace("gw_leave", "").trim();
-    const messageId = rawId || interaction.message.id;
-    const g = getGiveaway(messageId);
-
-    if (!g || g.ended) {
-      await interaction.reply({
-        content: "⌛ This giveaway is no longer active.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const res = removeGiveawayEntry(messageId, interaction.user.id);
-    if (res) {
-      try {
-        const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
-        if (channel) {
-          const msg = await channel.messages.fetch(messageId).catch(() => null);
-          if (msg) {
-            await msg.edit({
-              embeds: [buildGiveawayEmbed(g)],
-              components: buildGiveawayComponents(g),
-            });
-          }
-        }
-      } catch {}
-
-      await interaction.reply({
-        content: `❌ You have **left** the giveaway for **${g.prize}**.\n-# Total Participants: **${res.entriesCount}**`,
-        flags: MessageFlags.Ephemeral,
-      });
-    }
+    await interaction.reply({
+      content: `ℹ️ Giveaway entries are permanent once entered. You are locked in for the drawing! Good luck! 🎉`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 

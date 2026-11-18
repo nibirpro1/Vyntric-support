@@ -21,19 +21,8 @@ export default {
     const g = getGiveaway(message.id);
     if (!g || g.ended) return;
 
-    const idx = g.entries.indexOf(user.id);
-    if (idx >= 0) {
-      g.entries.splice(idx, 1);
-      saveGiveaway(g);
-
-      try {
-        await message.edit({
-          embeds: [buildGiveawayEmbed(g)],
-          components: buildGiveawayComponents(g),
-        });
-      } catch {
-        /* ignore */
-      }
-    }
+    // Strictly enforce "No Kick / No Removal" server policy:
+    // Once a member enters a giveaway, their entry is permanent and can never be removed or kicked.
+    return;
   },
 };

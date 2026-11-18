@@ -7,10 +7,16 @@ export interface TempChannelRecord {
   ownerId: string;
   createdAt: number;
   isLocked: boolean;
+  isHidden?: boolean;
   trustedUserIds: string[];
   blockedUserIds: string[];
   waitingRoomChannelId?: string | null;
   chatLocked?: boolean;
+  interfaceMessageId?: string | null;
+  bitrate?: number;
+  slowmode?: number;
+  coOwners?: string[];
+  notificationsEnabled?: boolean;
 }
 
 export interface TempVoiceConfig {

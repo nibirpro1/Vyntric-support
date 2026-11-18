@@ -13,6 +13,7 @@ import {
 } from "discord.js";
 import {
   deleteTempChannel,
+  getAllTempChannels,
   getTempChannel,
   getTempChannelByOwner,
   getTempVoiceConfig,
@@ -25,14 +26,51 @@ export const INTERFACE_IMAGE_URL =
 
 /**
  * Builds the exact TempVoice Interface Control Panel matching user screenshot.
+ * If record and channel are provided, generates a real-time live status dashboard.
  */
-export function buildInterfacePayload() {
+export function buildInterfacePayload(
+  record?: TempChannelRecord,
+  channel?: VoiceChannel
+) {
+  let color = 0xd4145a;
+  let description =
+    "# TempVoice Interface\n" +
+    "This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands.";
+
+  if (record && channel) {
+    if (record.isHidden) color = 0x9b59b6; // Ghost / Hidden
+    else if (record.isLocked) color = 0xe74c3c; // Locked / Private
+    else color = 0xd4145a; // Public
+
+    const capacityStr =
+      channel.userLimit === 0
+        ? "♾️ Unlimited"
+        : `${channel.members.size} / ${channel.userLimit} Slots`;
+    const privacyStr = record.isLocked ? "🔒 Locked" : "🔓 Public";
+    const visibilityStr = record.isHidden ? "👻 Hidden" : "👁️ Visible";
+    const trustedCount =
+      record.trustedUserIds.length > 0
+        ? `${record.trustedUserIds.length} user(s)`
+        : "None";
+    const blockedCount =
+      record.blockedUserIds.length > 0
+        ? `${record.blockedUserIds.length} user(s)`
+        : "None";
+    const waitingStr = record.waitingRoomChannelId ? "🟢 Active" : "Disabled";
+    const chatStr = record.chatLocked ? "🔒 Locked" : "💬 Open";
+
+    description =
+      `# TempVoice Interface\n` +
+      `This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands.\n\n` +
+      `> 👑 **Room Owner:** <@${record.ownerId}>\n` +
+      `> 👥 **Capacity:** \`${capacityStr}\`  |  **Privacy:** \`${privacyStr}\`\n` +
+      `> 👁️ **Visibility:** \`${visibilityStr}\`  |  **Chat:** \`${chatStr}\`\n` +
+      `> 🛡️ **Trusted:** \`${trustedCount}\`  |  **Blocked:** \`${blockedCount}\`  |  **Waiting:** \`${waitingStr}\``;
+  }
+
   const embed = new EmbedBuilder()
-    .setColor(0xd4145a)
-    .setDescription(
-      "# TempVoice Interface\n" +
-        "This **interface** can be used to manage temporary voice channels. More options are available with **/voice** commands."
-    )
+    .setColor(color)
+    .setDescription(description)
     .setImage(INTERFACE_IMAGE_URL)
     .setFooter({ text: "Press the buttons below to use the interface" });
 
@@ -112,6 +150,30 @@ export function buildInterfacePayload() {
 }
 
 /**
+ * Live updates the interactive control panel embed in the VC text chat.
+ */
+export async function updateVoiceChannelInterface(
+  guild: Guild,
+  channelId: string
+): Promise<void> {
+  const record = getTempChannel(channelId);
+  if (!record || !record.interfaceMessageId) return;
+
+  const channel = (await guild.channels
+    .fetch(channelId)
+    .catch(() => null)) as VoiceChannel | null;
+  if (!channel || !channel.isVoiceBased()) return;
+
+  const msg = await channel.messages
+    .fetch(record.interfaceMessageId)
+    .catch(() => null);
+  if (!msg) return;
+
+  const payload = buildInterfacePayload(record, channel);
+  await msg.edit(payload).catch(() => {});
+}
+
+/**
  * Sends or updates the Control Panel in the interface text channel.
  */
 export async function setupInterfaceChannel(
@@ -171,7 +233,8 @@ export async function handleTempVoiceStateUpdate(
       }
 
       // Generate channel name: "! {User}'s Channel"
-      const cleanName = member.displayName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "User";
+      const cleanName =
+        member.displayName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "User";
       const channelName = config.defaultNameTemplate
         .replace("{user}", cleanName)
         .replace("{tag}", member.user.username);
@@ -239,20 +302,26 @@ export async function handleTempVoiceStateUpdate(
         ownerId: member.id,
         createdAt: Date.now(),
         isLocked: false,
+        isHidden: false,
         trustedUserIds: [],
         blockedUserIds: [],
         waitingRoomChannelId: null,
       };
-      saveTempChannel(record);
 
       // Post the Control Panel directly in the newly created voice channel's chat!
-      const panelPayload = buildInterfacePayload();
-      await newChannel.send(panelPayload).catch((err) => {
+      const panelPayload = buildInterfacePayload(record, newChannel);
+      const sentPanel = await newChannel.send(panelPayload).catch((err) => {
         console.error("[tempvoice:send_vc_interface:error]", err);
+        return null;
       });
 
+      if (sentPanel) {
+        record.interfaceMessageId = sentPanel.id;
+      }
+      saveTempChannel(record);
+
       console.log(
-        `[tempvoice] Created temporary channel #${newChannel.name} with interactive interface for ${member.user.tag}`
+        `[tempvoice] Created temporary channel #${newChannel.name} with live interface for ${member.user.tag}`
       );
     } catch (err) {
       console.error("[tempvoice:j2c:create:error]", err);
@@ -261,7 +330,74 @@ export async function handleTempVoiceStateUpdate(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 2. CHANNEL CLEANUP: Member leaves a temporary channel
+  // 2. WAITING ROOM NOTIFICATION & 1-CLICK ADMISSION
+  // ─────────────────────────────────────────────────────────────
+  if (newState.channelId && newState.channelId !== oldState.channelId) {
+    const allChannels = getAllTempChannels(guild.id);
+    const waitingMatch = allChannels.find(
+      (c) => c.waitingRoomChannelId === newState.channelId
+    );
+
+    if (waitingMatch) {
+      const mainCh = (await guild.channels
+        .fetch(waitingMatch.channelId)
+        .catch(() => null)) as VoiceChannel | null;
+
+      if (mainCh) {
+        const admitRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`tv_admit_${member.id}_${waitingMatch.channelId}`)
+            .setLabel(`Admit ${member.displayName}`)
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("📥"),
+          new ButtonBuilder()
+            .setCustomId(`tv_deny_${member.id}_${waitingMatch.channelId}`)
+            .setLabel("Decline")
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji("✖️")
+        );
+
+        const alertMsg = await mainCh
+          .send({
+            content: `🔔 **Waiting Room Alert:** ${member.user} is waiting to join your room!`,
+            components: [admitRow],
+          })
+          .catch(() => null);
+
+        if (alertMsg) {
+          setTimeout(() => alertMsg.delete().catch(() => {}), 120_000);
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 3. JOIN EVENT TO EXISTING TEMP CHANNEL: Toast & Live Embed Update
+  // ─────────────────────────────────────────────────────────────
+  if (
+    newState.channelId &&
+    newState.channelId !== config.creatorChannelId &&
+    newState.channelId !== oldState.channelId
+  ) {
+    const tempRecord = getTempChannel(newState.channelId);
+    if (tempRecord) {
+      const ch = newState.channel as VoiceChannel | null;
+      if (ch) {
+        const joinMsg = await ch
+          .send({
+            content: `👋 **${member.displayName}** joined the voice room. (${ch.members.size} members)`,
+          })
+          .catch(() => null);
+        if (joinMsg) setTimeout(() => joinMsg.delete().catch(() => {}), 8000);
+
+        // Update live interface embed
+        void updateVoiceChannelInterface(guild, newState.channelId);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 4. LEAVE EVENT & CHANNEL CLEANUP
   // ─────────────────────────────────────────────────────────────
   if (oldState.channelId && oldState.channelId !== newState.channelId) {
     const tempRecord = getTempChannel(oldState.channelId);
@@ -283,7 +419,8 @@ export async function handleTempVoiceStateUpdate(
           const wr = await guild.channels
             .fetch(tempRecord.waitingRoomChannelId)
             .catch(() => null);
-          if (wr) await wr.delete("TempVoice: Main channel deleted").catch(() => {});
+          if (wr)
+            await wr.delete("TempVoice: Main channel deleted").catch(() => {});
         }
 
         deleteTempChannel(tempRecord.channelId);
@@ -291,12 +428,26 @@ export async function handleTempVoiceStateUpdate(
           `[tempvoice] Deleted empty temporary channel ${tempRecord.channelId}`
         );
       } else {
-        // Channel still has members, but the owner left
+        // Channel still has members
+        const leaveMsg = await oldChannel
+          .send({
+            content: `🚪 **${member.displayName}** left the voice room. (${oldChannel.members.size} members)`,
+          })
+          .catch(() => null);
+        if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
+
+        // If the owner left, notify members they can claim ownership
         if (member.id === tempRecord.ownerId) {
-          console.log(
-            `[tempvoice] Owner ${member.user.tag} left temporary channel #${oldChannel.name}. Channel remains active for others.`
-          );
+          const claimNotice = await oldChannel
+            .send({
+              content: `👑 **Room Owner left!** Any member can press **👑 CLAIM** on the interface to take ownership.`,
+            })
+            .catch(() => null);
+          if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 15000);
         }
+
+        // Update live interface embed
+        void updateVoiceChannelInterface(guild, oldState.channelId);
       }
     } catch (err) {
       console.error("[tempvoice:j2c:leave:error]", err);

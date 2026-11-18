@@ -1,6 +1,10 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  InviteTargetType,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -15,13 +19,27 @@ import {
   saveTempChannel,
   setTempVoiceConfig,
 } from "../../lib/tempVoiceStore";
-import { setupInterfaceChannel } from "../../lib/tempVoiceManager";
+import {
+  setupInterfaceChannel,
+  updateVoiceChannelInterface,
+} from "../../lib/tempVoiceManager";
 import { BRAND } from "../../lib/brand";
+
+const ACTIVITIES = [
+  { name: "YouTube Watch Together", id: "880218394199220274" },
+  { name: "Poker Night", id: "755827207812677713" },
+  { name: "Chess in the Park", id: "832012774040141894" },
+  { name: "Checkers in the Park", id: "832013003968348200" },
+  { name: "Letter League", id: "879863686562779157" },
+  { name: "SpellCast", id: "852509694341283840" },
+  { name: "Sketch Heads (Gartic)", id: "902271675360940052" },
+  { name: "Bobble League", id: "947957217959759964" },
+];
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("voice")
-    .setDescription("Manage temporary voice channels (Astro / TempVoice system)")
+    .setDescription("Manage temporary voice channels (Astro / TempVoice Pro system)")
     .addSubcommand((sub) =>
       sub
         .setName("name")
@@ -52,6 +70,52 @@ const command: Command = {
     )
     .addSubcommand((sub) =>
       sub.setName("unlock").setDescription("Unlock your channel so anyone can join")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("hide").setDescription("👻 Ghost Mode: Hide your channel from the server sidebar")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("unhide").setDescription("👁️ Make your channel visible to everyone on the sidebar")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("bitrate")
+        .setDescription("Change audio bitrate quality for crystal clear sound")
+        .addIntegerOption((opt) =>
+          opt
+            .setName("kbps")
+            .setDescription("Audio bitrate in kbps (e.g. 64, 96, 128)")
+            .setRequired(true)
+            .setMinValue(8)
+            .setMaxValue(384)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("slowmode")
+        .setDescription("Set chat slowmode rate limit for the voice text channel")
+        .addIntegerOption((opt) =>
+          opt
+            .setName("seconds")
+            .setDescription("Slowmode in seconds (0 = off, max 21600)")
+            .setRequired(true)
+            .setMinValue(0)
+            .setMaxValue(21600)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("activity")
+        .setDescription("🎮 Launch Discord Watch Together or party games in your voice channel")
+        .addStringOption((opt) =>
+          opt
+            .setName("game")
+            .setDescription("The game or activity to play")
+            .setRequired(true)
+            .addChoices(
+              ...ACTIVITIES.map((a) => ({ name: a.name, value: a.id }))
+            )
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -147,7 +211,9 @@ const command: Command = {
       const config = getTempVoiceConfig(guild.id);
       const targetCh =
         (interaction.options.getChannel("channel") as TextChannel | null) ||
-        ((await guild.channels.fetch(config.interfaceChannelId).catch(() => null)) as TextChannel | null);
+        ((await guild.channels
+          .fetch(config.interfaceChannelId)
+          .catch(() => null)) as TextChannel | null);
 
       if (!targetCh || !targetCh.isTextBased()) {
         await interaction.editReply(
@@ -195,6 +261,41 @@ const command: Command = {
       return;
     }
 
+    // ACTIVITY (Anyone in the room can launch an activity)
+    if (sub === "activity") {
+      const appId = interaction.options.getString("game", true);
+      const actObj = ACTIVITIES.find((a) => a.id === appId);
+      const actName = actObj?.name || "Activity";
+
+      try {
+        const invite = await voiceCh.createInvite({
+          targetApplication: appId,
+          targetType: InviteTargetType.EmbeddedApplication,
+          maxAge: 3600,
+          maxUses: 0,
+        });
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel(`🎮 Launch ${actName}`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(invite.url)
+        );
+
+        await interaction.reply({
+          content: `🎉 **${interaction.user.displayName}** started **${actName}** in <#${voiceCh.id}>!\nClick the link button below to play together:`,
+          components: [row],
+        });
+      } catch (err) {
+        console.error("[voice:activity:error]", err);
+        await interaction.reply({
+          content: "❌ Failed to start the Discord activity. Please check bot permissions.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return;
+    }
+
     // CLAIM
     if (sub === "claim") {
       if (tempRecord.ownerId === member.id) {
@@ -236,6 +337,8 @@ const command: Command = {
         await voiceCh.permissionOverwrites.delete(oldOwnerId).catch(() => {});
       }
 
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: `👑 **Ownership Claimed!** You are now the owner of **#${voiceCh.name}**!`,
         flags: MessageFlags.Ephemeral,
@@ -256,6 +359,8 @@ const command: Command = {
     if (sub === "name") {
       const newName = interaction.options.getString("name", true).trim();
       await voiceCh.setName(newName);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: `✅ Voice channel renamed to **${newName}**!`,
         flags: MessageFlags.Ephemeral,
@@ -267,6 +372,8 @@ const command: Command = {
     if (sub === "limit") {
       const limit = interaction.options.getInteger("limit", true);
       await voiceCh.setUserLimit(limit);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: `✅ User limit set to **${limit === 0 ? "Unlimited" : limit}**!`,
         flags: MessageFlags.Ephemeral,
@@ -276,7 +383,7 @@ const command: Command = {
 
     // LOCK
     if (sub === "lock") {
-      await voiceCh.permissionOverwrites.edit(guild.roles.everyone.id, { Connect: false });
+      await voiceCh.permissionOverwrites.edit(guild.id, { Connect: false });
       for (const tId of tempRecord.trustedUserIds) {
         await voiceCh.permissionOverwrites
           .edit(tId, { Connect: true, ViewChannel: true })
@@ -284,6 +391,8 @@ const command: Command = {
       }
       tempRecord.isLocked = true;
       saveTempChannel(tempRecord);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: "🔒 **Channel Locked!** Only trusted members or invited guests can join.",
         flags: MessageFlags.Ephemeral,
@@ -293,11 +402,83 @@ const command: Command = {
 
     // UNLOCK
     if (sub === "unlock") {
-      await voiceCh.permissionOverwrites.edit(guild.roles.everyone.id, { Connect: true });
+      await voiceCh.permissionOverwrites.edit(guild.id, { Connect: true });
       tempRecord.isLocked = false;
       saveTempChannel(tempRecord);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: "🔓 **Channel Unlocked!** Anyone can join now.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // HIDE (Ghost Mode)
+    if (sub === "hide") {
+      await voiceCh.permissionOverwrites.edit(guild.id, { ViewChannel: false });
+      for (const tId of tempRecord.trustedUserIds) {
+        await voiceCh.permissionOverwrites
+          .edit(tId, { ViewChannel: true, Connect: true })
+          .catch(() => {});
+      }
+      tempRecord.isHidden = true;
+      saveTempChannel(tempRecord);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
+      await interaction.reply({
+        content: "👻 **Ghost Mode Enabled!** Your channel is now hidden from the server sidebar.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // UNHIDE
+    if (sub === "unhide") {
+      await voiceCh.permissionOverwrites.edit(guild.id, { ViewChannel: true });
+      tempRecord.isHidden = false;
+      saveTempChannel(tempRecord);
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
+      await interaction.reply({
+        content: "👁️ **Channel Visible!** Everyone can now see your channel on the sidebar.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // BITRATE
+    if (sub === "bitrate") {
+      const kbps = interaction.options.getInteger("kbps", true);
+      const maxBitrate = (guild.maximumBitrate || 96000) / 1000;
+      if (kbps > maxBitrate) {
+        await interaction.reply({
+          content: `⚠️ Server boost level only supports up to **${maxBitrate} kbps**.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await voiceCh.setBitrate(kbps * 1000);
+      tempRecord.bitrate = kbps;
+      saveTempChannel(tempRecord);
+
+      await interaction.reply({
+        content: `🔊 Audio bitrate set to **${kbps} kbps** for high quality voice!`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // SLOWMODE
+    if (sub === "slowmode") {
+      const seconds = interaction.options.getInteger("seconds", true);
+      await voiceCh.setRateLimitPerUser(seconds);
+      tempRecord.slowmode = seconds;
+      saveTempChannel(tempRecord);
+
+      await interaction.reply({
+        content: `⏳ Voice chat slowmode set to **${seconds}s**!`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -316,6 +497,8 @@ const command: Command = {
         ViewChannel: true,
         Speak: true,
       });
+
+      void updateVoiceChannelInterface(guild, voiceCh.id);
 
       await interaction.reply({
         content: `✅ <@${target.id}> is now trusted and can join even when locked!`,
@@ -338,6 +521,8 @@ const command: Command = {
           await targetMember.voice.disconnect("Untrusted by channel owner").catch(() => {});
         }
       }
+
+      void updateVoiceChannelInterface(guild, voiceCh.id);
 
       await interaction.reply({
         content: `❌ <@${target.id}> has been removed from trusted users.`,
@@ -364,6 +549,8 @@ const command: Command = {
         await targetMember.voice.disconnect("Blocked by channel owner").catch(() => {});
       }
 
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: `⛔ <@${target.id}> has been blocked and cannot join your channel!`,
         flags: MessageFlags.Ephemeral,
@@ -378,6 +565,7 @@ const command: Command = {
       saveTempChannel(tempRecord);
 
       await voiceCh.permissionOverwrites.delete(target.id).catch(() => {});
+      void updateVoiceChannelInterface(guild, voiceCh.id);
 
       await interaction.reply({
         content: `✅ <@${target.id}> has been unblocked.`,
@@ -399,6 +587,8 @@ const command: Command = {
       }
 
       await targetMember.voice.disconnect("Kicked by channel owner").catch(() => {});
+      void updateVoiceChannelInterface(guild, voiceCh.id);
+
       await interaction.reply({
         content: `👢 Disconnected <@${target.id}> from your voice channel.`,
         flags: MessageFlags.Ephemeral,
@@ -436,6 +626,7 @@ const command: Command = {
         .catch(() => {});
 
       await voiceCh.permissionOverwrites.delete(oldOwnerId).catch(() => {});
+      void updateVoiceChannelInterface(guild, voiceCh.id);
 
       await interaction.reply({
         content: `👑 Ownership has been transferred to <@${target.id}>!`,

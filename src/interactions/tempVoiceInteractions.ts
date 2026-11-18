@@ -22,12 +22,17 @@ import {
   saveTempChannel,
   TempChannelRecord,
 } from "../lib/tempVoiceStore";
+import { updateVoiceChannelInterface } from "../lib/tempVoiceManager";
 
 /**
  * Validates whether the user is in a temporary channel and whether they are authorized.
  */
 function resolveUserTempChannel(
-  interaction: ButtonInteraction | StringSelectMenuInteraction | UserSelectMenuInteraction | ModalSubmitInteraction
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
+    | ModalSubmitInteraction
 ): {
   member: GuildMember | null;
   channel: VoiceChannel | null;
@@ -105,6 +110,57 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
+    // ── WAITING ROOM ADMIT / DECLINE ACTIONS ──
+    if (customId.startsWith("tv_admit_") || customId.startsWith("tv_deny_")) {
+      const parts = customId.split("_");
+      const action = parts[1]; // "admit" or "deny"
+      const targetUserId = parts[2];
+      const mainChannelId = parts[3];
+
+      const record = getTempChannel(mainChannelId);
+      if (!record) {
+        await interaction.reply({
+          content: "❌ This temporary voice channel no longer exists.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      if (record.ownerId !== interaction.user.id) {
+        await interaction.reply({
+          content: "❌ Only the channel owner can admit or decline waiting members!",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const targetMember = await interaction.guild!.members
+        .fetch(targetUserId)
+        .catch(() => null);
+      if (!targetMember || !targetMember.voice.channel) {
+        await interaction.update({
+          content: `⚠️ <@${targetUserId}> is no longer in the waiting room.`,
+          components: [],
+        });
+        return;
+      }
+
+      if (action === "admit") {
+        await targetMember.voice.setChannel(mainChannelId);
+        await interaction.update({
+          content: `✅ Admitted ${targetMember.user} into the channel!`,
+          components: [],
+        });
+      } else {
+        await targetMember.voice.disconnect("Owner declined admission");
+        await interaction.update({
+          content: `✖️ Declined admission for ${targetMember.user}.`,
+          components: [],
+        });
+      }
+      return;
+    }
+
     // Check voice channel context
     const ctx = resolveUserTempChannel(interaction);
     if (ctx.error || !ctx.channel || !ctx.tempRecord || !ctx.member) {
@@ -160,6 +216,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       if (oldOwnerId) {
         await channel.permissionOverwrites.delete(oldOwnerId).catch(() => {});
       }
+
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
       await interaction.reply({
         content: `👑 **Ownership Claimed!** You are now the owner of **#${channel.name}**!`,
@@ -221,7 +279,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
     if (customId === "voice_privacy_button" || customId === "tv_btn_privacy") {
       if (!tempRecord.isLocked) {
         // Lock channel
-        await channel.permissionOverwrites.edit(interaction.guild!.roles.everyone.id, {
+        await channel.permissionOverwrites.edit(interaction.guild!.id, {
           Connect: false,
         });
 
@@ -234,6 +292,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
 
         tempRecord.isLocked = true;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
           content:
@@ -242,12 +301,13 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         });
       } else {
         // Unlock channel
-        await channel.permissionOverwrites.edit(interaction.guild!.roles.everyone.id, {
+        await channel.permissionOverwrites.edit(interaction.guild!.id, {
           Connect: true,
         });
 
         tempRecord.isLocked = false;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
           content: "🔓 **Channel Unlocked!** Anyone can join now.",
@@ -267,7 +327,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
           parent: channel.parentId || undefined,
           permissionOverwrites: [
             {
-              id: interaction.guild!.roles.everyone.id,
+              id: interaction.guild!.id,
               allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect],
               deny: [PermissionsBitField.Flags.Speak],
             },
@@ -284,9 +344,10 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
 
         tempRecord.waitingRoomChannelId = wr.id;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
-          content: `🕒 **Waiting Room created:** <#${wr.id}>\nUsers can wait there and you can drag them into your channel.`,
+          content: `🕒 **Waiting Room created:** <#${wr.id}>\nWhen members join, you will receive a notification with a 1-click **Admit** button.`,
           flags: MessageFlags.Ephemeral,
         });
       } else {
@@ -298,6 +359,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
 
         tempRecord.waitingRoomChannelId = null;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
           content: "🕒 Waiting Room has been closed and removed.",
@@ -312,11 +374,12 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       const isChatLocked = Boolean(tempRecord.chatLocked);
       if (!isChatLocked) {
         // Lock chat
-        await channel.permissionOverwrites.edit(interaction.guild!.roles.everyone.id, {
+        await channel.permissionOverwrites.edit(interaction.guild!.id, {
           SendMessages: false,
         });
         tempRecord.chatLocked = true;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
           content: "💬 **Voice text chat locked!** Only you can send messages here.",
@@ -324,11 +387,12 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         });
       } else {
         // Unlock chat
-        await channel.permissionOverwrites.edit(interaction.guild!.roles.everyone.id, {
+        await channel.permissionOverwrites.edit(interaction.guild!.id, {
           SendMessages: true,
         });
         tempRecord.chatLocked = false;
         saveTempChannel(tempRecord);
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
         await interaction.reply({
           content: "💬 **Voice text chat unlocked!** Members can chat freely.",
@@ -539,6 +603,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       }
 
       await channel.setName(newName);
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
+
       await interaction.reply({
         content: `✅ Voice channel renamed to **${newName}**!`,
         flags: MessageFlags.Ephemeral,
@@ -558,6 +624,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       }
 
       await channel.setUserLimit(num);
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
+
       await interaction.reply({
         content: `✅ User limit set to **${num === 0 ? "Unlimited" : num}**!`,
         flags: MessageFlags.Ephemeral,
@@ -595,6 +663,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         Speak: true,
       });
 
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
+
       await interaction.update({
         content: `✅ <@${targetUserId}> has been trusted and can join even when locked!`,
         components: [],
@@ -615,6 +685,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
           await targetMember.voice.disconnect("Untrusted by channel owner").catch(() => {});
         }
       }
+
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
       await interaction.update({
         content: `❌ <@${targetUserId}> has been removed from trusted users.`,
@@ -667,6 +739,8 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         await targetMember.voice.disconnect("Blocked by channel owner").catch(() => {});
       }
 
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
+
       await interaction.update({
         content: `⛔ <@${targetUserId}> has been blocked and removed from your channel!`,
         components: [],
@@ -680,6 +754,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       saveTempChannel(tempRecord);
 
       await channel.permissionOverwrites.delete(targetUserId).catch(() => {});
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
       await interaction.update({
         content: `✅ <@${targetUserId}> has been unblocked.`,
@@ -717,6 +792,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
         .catch(() => {});
 
       await channel.permissionOverwrites.delete(oldOwnerId).catch(() => {});
+      void updateVoiceChannelInterface(interaction.guild!, channel.id);
 
       await interaction.update({
         content: `👑 Ownership has been successfully transferred to <@${targetUserId}>!`,
@@ -745,6 +821,7 @@ export async function handleTempVoiceInteraction(interaction: Interaction): Prom
       const targetMember = channel.members.get(targetId);
       if (targetMember) {
         await targetMember.voice.disconnect("Kicked by channel owner").catch(() => {});
+        void updateVoiceChannelInterface(interaction.guild!, channel.id);
         await interaction.update({
           content: `👢 Successfully kicked <@${targetId}> from your voice channel!`,
           components: [],

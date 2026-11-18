@@ -280,6 +280,193 @@ export async function setupInterfaceChannel(
 }
 
 /**
+ * Processes a member leaving a temporary voice channel:
+ * - If channel becomes completely empty of humans, deletes it immediately.
+ * - If channel still has humans and the departing member is the owner,
+ *   starts a 5-minute delayed auto-transfer timer to the 2nd person who joined.
+ */
+export async function handleLeaveTempChannel(
+  guild: Guild,
+  member: GuildMember,
+  oldChannelId: string
+): Promise<void> {
+  const tempRecord = getTempChannel(oldChannelId);
+  if (!tempRecord) return;
+
+  try {
+    const oldChannel = (await guild.channels
+      .fetch(oldChannelId)
+      .catch(() => null)) as VoiceChannel | null;
+
+    // Filter remaining human members, explicitly excluding the departing member and bots
+    const remainingHumans = oldChannel
+      ? oldChannel.members.filter((m) => m.id !== member.id && !m.user.bot)
+      : null;
+
+    const isChannelEmpty = !oldChannel || !remainingHumans || remainingHumans.size === 0;
+
+    if (isChannelEmpty) {
+      // Voice channel is deleted immediately if there's no one in the voice channel
+      const pending = ownerLeaveTimers.get(tempRecord.channelId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        ownerLeaveTimers.delete(tempRecord.channelId);
+      }
+
+      if (oldChannel) {
+        await oldChannel.delete("TempVoice: Channel is empty").catch(() => {});
+      }
+
+      // Delete waiting room if one was attached
+      if (tempRecord.waitingRoomChannelId) {
+        const wr = await guild.channels
+          .fetch(tempRecord.waitingRoomChannelId)
+          .catch(() => null);
+        if (wr)
+          await wr.delete("TempVoice: Main channel deleted").catch(() => {});
+      }
+
+      deleteTempChannel(tempRecord.channelId);
+      console.log(
+        `[tempvoice] Deleted empty temporary channel ${tempRecord.channelId}`
+      );
+    } else {
+      // Channel still has members
+      const leaveMsg = await oldChannel
+        .send({
+          content: `🚪 **${member.displayName}** left the voice room. (${remainingHumans.size} member${remainingHumans.size === 1 ? "" : "s"} remaining)`,
+        })
+        .catch(() => null);
+      if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
+
+      // If a non-owner member left, remove them from the join order list
+      if (member.id !== tempRecord.ownerId && tempRecord.memberJoinOrder) {
+        tempRecord.memberJoinOrder = tempRecord.memberJoinOrder.filter((id) => id !== member.id);
+        saveTempChannel(tempRecord);
+      }
+
+      // If the owner left (and room is not empty), start 5-minute auto-transfer to the 2nd person who joined
+      if (member.id === tempRecord.ownerId) {
+        const existingTimer = ownerLeaveTimers.get(tempRecord.channelId);
+        if (existingTimer) clearTimeout(existingTimer.timeout);
+
+        // Find the 2nd person who joined after the owner
+        const nextInLineId =
+          tempRecord.memberJoinOrder?.find(
+            (id) =>
+              id !== member.id &&
+              oldChannel.members.has(id) &&
+              !oldChannel.members.get(id)?.user.bot
+          ) || remainingHumans.first()?.id;
+
+        const claimNotice = await oldChannel
+          .send({
+            content: `👑 **Room Owner left!** <@${tempRecord.ownerId}> has **5 minutes** to return. If they do not return, ownership will automatically transfer to the 2nd person who joined (<@${nextInLineId}>).`,
+          })
+          .catch(() => null);
+        if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 20000);
+
+        const timeout = setTimeout(async () => {
+          ownerLeaveTimers.delete(tempRecord.channelId);
+          try {
+            const targetCh = (await guild.channels
+              .fetch(tempRecord.channelId)
+              .catch(() => null)) as VoiceChannel | null;
+            
+            const activeHumans = targetCh
+              ? targetCh.members.filter((m) => !m.user.bot)
+              : null;
+
+            if (!targetCh || !targetCh.isVoiceBased() || !activeHumans || activeHumans.size === 0) {
+              if (targetCh) await targetCh.delete("TempVoice: Empty channel").catch(() => {});
+              deleteTempChannel(tempRecord.channelId);
+              return;
+            }
+
+            const currentRec = getTempChannel(targetCh.id);
+            if (!currentRec || currentRec.ownerId !== member.id) return;
+            if (targetCh.members.has(member.id)) return; // Owner rejoined
+
+            // Select the 2nd person who joined after the owner!
+            let newOwnerId: string | undefined = currentRec.memberJoinOrder?.find(
+              (id) =>
+                id !== member.id &&
+                targetCh.members.has(id) &&
+                !targetCh.members.get(id)?.user.bot
+            );
+
+            // Fallback if not found in join order
+            if (!newOwnerId) {
+              newOwnerId = activeHumans.first()?.id;
+            }
+            if (!newOwnerId) return;
+
+            const newOwner = targetCh.members.get(newOwnerId);
+            if (!newOwner) return;
+
+            const oldOwnerId = currentRec.ownerId;
+            currentRec.ownerId = newOwnerId;
+            if (currentRec.memberJoinOrder) {
+              currentRec.memberJoinOrder = [
+                newOwnerId,
+                ...currentRec.memberJoinOrder.filter(
+                  (id) => id !== newOwnerId && id !== oldOwnerId
+                ),
+              ];
+            }
+            saveTempChannel(currentRec);
+
+            // Rename channel
+            const cleanName =
+              newOwner.displayName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "User";
+            await targetCh.setName(`! ${cleanName}'s Channel`).catch(() => {});
+
+            // Grant full control permissions to new owner
+            await targetCh.permissionOverwrites
+              .edit(newOwnerId, {
+                ViewChannel: true,
+                Connect: true,
+                Speak: true,
+                Stream: true,
+                SendMessages: true,
+                ReadMessageHistory: true,
+                ManageChannels: true,
+                MoveMembers: true,
+                MuteMembers: true,
+                DeafenMembers: true,
+                PrioritySpeaker: true,
+              })
+              .catch(() => {});
+
+            // Remove previous owner's specific manage permissions
+            if (oldOwnerId) {
+              await targetCh.permissionOverwrites.delete(oldOwnerId).catch(() => {});
+            }
+
+            void updateVoiceChannelInterface(guild, targetCh.id);
+
+            await targetCh
+              .send({
+                content: `👑 **Ownership Auto-Transferred:** <@${newOwnerId}> (2nd person who joined after the owner) is now the channel owner because <@${oldOwnerId}> was inactive for 5 minutes.`,
+              })
+              .catch(() => {});
+          } catch (e) {
+            console.error("[tempvoice:delayed_transfer:error]", e);
+          }
+        }, 5 * 60 * 1000);
+
+        ownerLeaveTimers.set(tempRecord.channelId, { timeout, ownerId: member.id });
+      }
+
+      // Update live interface embed
+      void updateVoiceChannelInterface(guild, oldChannelId);
+    }
+  } catch (err) {
+    console.error("[tempvoice:j2c:leave:error]", err);
+  }
+}
+
+/**
  * Handles member entering or leaving voice channels for Join-to-Create (J2C) logic.
  */
 export async function handleTempVoiceStateUpdate(
@@ -294,22 +481,52 @@ export async function handleTempVoiceStateUpdate(
   if (!config.enabled) return;
 
   // ─────────────────────────────────────────────────────────────
-  // 1. JOIN-TO-CREATE: Member joins the creator channel ("Create vc")
+  // 1. LEAVE EVENT & CHANNEL CLEANUP (Runs whenever member leaves a channel)
+  // ─────────────────────────────────────────────────────────────
+  if (oldState.channelId && oldState.channelId !== newState.channelId) {
+    await handleLeaveTempChannel(guild, member, oldState.channelId);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. JOIN-TO-CREATE: Member joins the creator channel ("Create vc")
   // ─────────────────────────────────────────────────────────────
   if (newState.channelId && newState.channelId === config.creatorChannelId) {
     try {
-      // Check if user already has an active channel
-      const existingRecord = getTempChannelByOwner(guild.id, member.id);
-      if (existingRecord) {
+      // Check existing channels owned by this member
+      const existingOwned = getAllTempChannels(guild.id).filter(
+        (c) => c.ownerId === member.id
+      );
+
+      for (const existingRecord of existingOwned) {
         const existingCh = (await guild.channels
           .fetch(existingRecord.channelId)
           .catch(() => null)) as VoiceChannel | null;
+
         if (existingCh) {
-          // Move user back to their channel
-          await member.voice.setChannel(existingCh);
-          return;
+          const remainingHumans = existingCh.members.filter(
+            (m) => m.id !== member.id && !m.user.bot
+          );
+
+          if (remainingHumans.size > 0) {
+            // There are still other people in the owner's old VC!
+            // Do NOT force the user back to the old VC.
+            // Let the owner create a brand new VC, while the old VC remains on
+            // its 5-minute auto-transfer countdown to transfer ownership to the 2nd joiner.
+            console.log(
+              `[tempvoice] Owner ${member.user.tag} creating new channel; old channel #${existingCh.name} has ${remainingHumans.size} members and will auto-transfer.`
+            );
+          } else {
+            // Old channel has no other humans (it is empty) - delete it immediately
+            const pending = ownerLeaveTimers.get(existingRecord.channelId);
+            if (pending) {
+              clearTimeout(pending.timeout);
+              ownerLeaveTimers.delete(existingRecord.channelId);
+            }
+            await existingCh.delete("TempVoice: Owner creating new channel").catch(() => {});
+            deleteTempChannel(existingRecord.channelId);
+          }
         } else {
-          // Channel was deleted manually
+          // Channel already deleted
           deleteTempChannel(existingRecord.channelId);
         }
       }
@@ -484,18 +701,27 @@ export async function handleTempVoiceStateUpdate(
       // If the owner rejoined, cancel any pending delayed ownership transfer!
       const pendingTimer = ownerLeaveTimers.get(newState.channelId);
       if (pendingTimer && pendingTimer.ownerId === member.id) {
-        clearTimeout(pendingTimer.timeout);
-        ownerLeaveTimers.delete(newState.channelId);
-        console.log(`[tempvoice] Owner ${member.user.tag} returned within 5m grace period. Auto-transfer cancelled.`);
+        // Only cancel if this user does NOT currently own another active channel
+        const isOwnerOfAnotherChannel = getAllTempChannels(guild.id).some(
+          (c) => c.channelId !== newState.channelId && c.ownerId === member.id
+        );
 
-        const ch = newState.channel as VoiceChannel | null;
-        if (ch) {
-          const cancelMsg = await ch
-            .send({
-              content: `👑 **Welcome back <@${member.id}>!** You returned within the 5-minute window; ownership retained.`,
-            })
-            .catch(() => null);
-          if (cancelMsg) setTimeout(() => cancelMsg.delete().catch(() => {}), 10_000);
+        if (!isOwnerOfAnotherChannel) {
+          clearTimeout(pendingTimer.timeout);
+          ownerLeaveTimers.delete(newState.channelId);
+          console.log(
+            `[tempvoice] Owner ${member.user.tag} returned within 5m grace period. Auto-transfer cancelled.`
+          );
+
+          const ch = newState.channel as VoiceChannel | null;
+          if (ch) {
+            const cancelMsg = await ch
+              .send({
+                content: `👑 **Welcome back <@${member.id}>!** You returned within the 5-minute window; ownership retained.`,
+              })
+              .catch(() => null);
+            if (cancelMsg) setTimeout(() => cancelMsg.delete().catch(() => {}), 10_000);
+          }
         }
       }
 
@@ -511,186 +737,6 @@ export async function handleTempVoiceStateUpdate(
         // Update live interface embed
         void updateVoiceChannelInterface(guild, newState.channelId);
       }
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 4. LEAVE EVENT & CHANNEL CLEANUP
-  // ─────────────────────────────────────────────────────────────
-  if (oldState.channelId && oldState.channelId !== newState.channelId) {
-    const tempRecord = getTempChannel(oldState.channelId);
-    if (!tempRecord) return;
-
-    try {
-      const oldChannel = (await guild.channels
-        .fetch(oldState.channelId)
-        .catch(() => null)) as VoiceChannel | null;
-
-      // Filter remaining human members, explicitly excluding the departing member and bots
-      const remainingHumans = oldChannel
-        ? oldChannel.members.filter((m) => m.id !== member.id && !m.user.bot)
-        : null;
-
-      const isChannelEmpty = !oldChannel || !remainingHumans || remainingHumans.size === 0;
-
-      if (isChannelEmpty) {
-        // Voice channel is deleted immediately if there's no one in the voice channel
-        const pending = ownerLeaveTimers.get(tempRecord.channelId);
-        if (pending) {
-          clearTimeout(pending.timeout);
-          ownerLeaveTimers.delete(tempRecord.channelId);
-        }
-
-        if (oldChannel) {
-          await oldChannel.delete("TempVoice: Channel is empty").catch(() => {});
-        }
-
-        // Delete waiting room if one was attached
-        if (tempRecord.waitingRoomChannelId) {
-          const wr = await guild.channels
-            .fetch(tempRecord.waitingRoomChannelId)
-            .catch(() => null);
-          if (wr)
-            await wr.delete("TempVoice: Main channel deleted").catch(() => {});
-        }
-
-        deleteTempChannel(tempRecord.channelId);
-        console.log(
-          `[tempvoice] Deleted empty temporary channel ${tempRecord.channelId}`
-        );
-      } else {
-        // Channel still has members
-        const leaveMsg = await oldChannel
-          .send({
-            content: `🚪 **${member.displayName}** left the voice room. (${remainingHumans.size} member${remainingHumans.size === 1 ? "" : "s"} remaining)`,
-          })
-          .catch(() => null);
-        if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
-
-        // If a non-owner member left, remove them from the join order list
-        if (member.id !== tempRecord.ownerId && tempRecord.memberJoinOrder) {
-          tempRecord.memberJoinOrder = tempRecord.memberJoinOrder.filter((id) => id !== member.id);
-          saveTempChannel(tempRecord);
-        }
-
-        // If the owner left (and room is not empty), start 5-minute auto-transfer to the 2nd person who joined
-        if (member.id === tempRecord.ownerId) {
-          const existingTimer = ownerLeaveTimers.get(tempRecord.channelId);
-          if (existingTimer) clearTimeout(existingTimer.timeout);
-
-          // Find the 2nd person who joined after the owner
-          const nextInLineId =
-            tempRecord.memberJoinOrder?.find(
-              (id) =>
-                id !== member.id &&
-                oldChannel.members.has(id) &&
-                !oldChannel.members.get(id)?.user.bot
-            ) || remainingHumans.first()?.id;
-
-          const claimNotice = await oldChannel
-            .send({
-              content: `👑 **Room Owner left!** <@${tempRecord.ownerId}> has **5 minutes** to return. If they do not return, ownership will automatically transfer to the 2nd person who joined (<@${nextInLineId}>).`,
-            })
-            .catch(() => null);
-          if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 20000);
-
-          const timeout = setTimeout(async () => {
-            ownerLeaveTimers.delete(tempRecord.channelId);
-            try {
-              const targetCh = (await guild.channels
-                .fetch(tempRecord.channelId)
-                .catch(() => null)) as VoiceChannel | null;
-              
-              const activeHumans = targetCh
-                ? targetCh.members.filter((m) => !m.user.bot)
-                : null;
-
-              if (!targetCh || !targetCh.isVoiceBased() || !activeHumans || activeHumans.size === 0) {
-                if (targetCh) await targetCh.delete("TempVoice: Empty channel").catch(() => {});
-                deleteTempChannel(tempRecord.channelId);
-                return;
-              }
-
-              const currentRec = getTempChannel(targetCh.id);
-              if (!currentRec || currentRec.ownerId !== member.id) return;
-              if (targetCh.members.has(member.id)) return; // Owner rejoined
-
-              // Select the 2nd person who joined after the owner!
-              let newOwnerId: string | undefined = currentRec.memberJoinOrder?.find(
-                (id) =>
-                  id !== member.id &&
-                  targetCh.members.has(id) &&
-                  !targetCh.members.get(id)?.user.bot
-              );
-
-              // Fallback if not found in join order
-              if (!newOwnerId) {
-                newOwnerId = activeHumans.first()?.id;
-              }
-              if (!newOwnerId) return;
-
-              const newOwner = targetCh.members.get(newOwnerId);
-              if (!newOwner) return;
-
-              const oldOwnerId = currentRec.ownerId;
-              currentRec.ownerId = newOwnerId;
-              if (currentRec.memberJoinOrder) {
-                currentRec.memberJoinOrder = [
-                  newOwnerId,
-                  ...currentRec.memberJoinOrder.filter(
-                    (id) => id !== newOwnerId && id !== oldOwnerId
-                  ),
-                ];
-              }
-              saveTempChannel(currentRec);
-
-              // Rename channel
-              const cleanName =
-                newOwner.displayName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "User";
-              await targetCh.setName(`! ${cleanName}'s Channel`).catch(() => {});
-
-              // Grant full control permissions to new owner
-              await targetCh.permissionOverwrites
-                .edit(newOwnerId, {
-                  ViewChannel: true,
-                  Connect: true,
-                  Speak: true,
-                  Stream: true,
-                  SendMessages: true,
-                  ReadMessageHistory: true,
-                  ManageChannels: true,
-                  MoveMembers: true,
-                  MuteMembers: true,
-                  DeafenMembers: true,
-                  PrioritySpeaker: true,
-                })
-                .catch(() => {});
-
-              // Remove previous owner's specific manage permissions
-              if (oldOwnerId) {
-                await targetCh.permissionOverwrites.delete(oldOwnerId).catch(() => {});
-              }
-
-              void updateVoiceChannelInterface(guild, targetCh.id);
-
-              await targetCh
-                .send({
-                  content: `👑 **Ownership Auto-Transferred:** <@${newOwnerId}> (2nd person who joined after the owner) is now the channel owner because <@${oldOwnerId}> was inactive for 5 minutes.`,
-                })
-                .catch(() => {});
-            } catch (e) {
-              console.error("[tempvoice:delayed_transfer:error]", e);
-            }
-          }, 5 * 60 * 1000);
-
-          ownerLeaveTimers.set(tempRecord.channelId, { timeout, ownerId: member.id });
-        }
-
-        // Update live interface embed
-        void updateVoiceChannelInterface(guild, oldState.channelId);
-      }
-    } catch (err) {
-      console.error("[tempvoice:j2c:leave:error]", err);
     }
   }
 }

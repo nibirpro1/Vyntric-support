@@ -9,6 +9,11 @@ import {
   getRandomWelcomeJoke,
   getWelcomeConfig,
 } from "../lib/welcomeStore";
+import {
+  isRecentChatWelcome,
+  markChatWelcomeSent,
+  scheduleChatWelcomeDeletion,
+} from "../lib/chatWelcomeCleaner";
 import { BRAND } from "../lib/brand";
 import { getAntiNukeConfig } from "../lib/antinukeStore";
 import { isImmune, executePunishment, sendAntiNukeAlert } from "../lib/antinukeManager";
@@ -163,44 +168,66 @@ export default {
     // 2.5. Send Short Beautiful Greeting Card to General Chat (e.g. #〢ᴄʜᴀᴛ)
     if (config.chatWelcomeEnabled && config.chatWelcomeChannelId) {
       try {
-        const chatChannel =
-          (member.guild.channels.cache.get(config.chatWelcomeChannelId) as TextChannel | undefined) ||
-          ((await member.guild.channels.fetch(config.chatWelcomeChannelId).catch(() => null)) as TextChannel | null);
+        if (isRecentChatWelcome(member.id)) {
+          console.log(`[welcome:chat] Suppressed duplicate greeting card for ${member.user.tag} (already sent within 60s)`);
+        } else {
+          markChatWelcomeSent(member.id);
 
-        if (chatChannel && chatChannel.isTextBased()) {
-          const pingText = formatWelcomeText(config.chatWelcomePing || DEFAULT_CHAT_PING, member);
-          const titleText = formatWelcomeText(config.chatWelcomeTitle || DEFAULT_CHAT_TITLE, member);
-          const descText = formatWelcomeText(config.chatWelcomeDescription || DEFAULT_CHAT_DESCRIPTION, member);
+          const chatChannel =
+            (member.guild.channels.cache.get(config.chatWelcomeChannelId) as TextChannel | undefined) ||
+            ((await member.guild.channels.fetch(config.chatWelcomeChannelId).catch(() => null)) as TextChannel | null);
 
-          const chatEmbed = new EmbedBuilder()
-            .setColor(BRAND.colors.primary)
-            .setTitle(titleText.slice(0, 256))
-            .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
-            .setDescription(descText)
-            .setFooter({ text: `${member.guild.name} • Member #${member.guild.memberCount}` })
-            .setTimestamp();
+          if (chatChannel && chatChannel.isTextBased()) {
+            const pingText = formatWelcomeText(config.chatWelcomePing || DEFAULT_CHAT_PING, member);
+            const titleText = formatWelcomeText(config.chatWelcomeTitle || DEFAULT_CHAT_TITLE, member);
+            const descText = formatWelcomeText(config.chatWelcomeDescription || DEFAULT_CHAT_DESCRIPTION, member);
 
-          const chatFiles: AttachmentBuilder[] = [];
-          if (config.chatWelcomeBannerUrl && config.chatWelcomeBannerUrl.trim().length > 0) {
-            chatEmbed.setImage(config.chatWelcomeBannerUrl.trim());
-          } else if (fs.existsSync(DEFAULT_CHAT_BANNER_PATH)) {
-            const chatBannerAttachment = new AttachmentBuilder(DEFAULT_CHAT_BANNER_PATH, { name: "vyntric-chat-welcome.gif" });
-            chatEmbed.setImage("attachment://vyntric-chat-welcome.gif");
-            chatFiles.push(chatBannerAttachment);
-          } else if (config.bannerUrl && config.bannerUrl.trim().length > 0) {
-            chatEmbed.setImage(config.bannerUrl.trim());
-          } else if (fs.existsSync(DEFAULT_BANNER_PATH)) {
-            const bannerAttachment = new AttachmentBuilder(DEFAULT_BANNER_PATH, { name: "vyntric-welcome.gif" });
-            chatEmbed.setImage("attachment://vyntric-welcome.gif");
-            chatFiles.push(bannerAttachment);
+            const chatEmbed = new EmbedBuilder()
+              .setColor(BRAND.colors.primary)
+              .setTitle(titleText.slice(0, 256))
+              .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+              .setDescription(descText)
+              .setFooter({ text: `${member.guild.name} • Member #${member.guild.memberCount}` })
+              .setTimestamp();
+
+            const chatFiles: AttachmentBuilder[] = [];
+            if (config.chatWelcomeBannerUrl && config.chatWelcomeBannerUrl.trim().length > 0) {
+              chatEmbed.setImage(config.chatWelcomeBannerUrl.trim());
+            } else if (fs.existsSync(DEFAULT_CHAT_BANNER_PATH)) {
+              const chatBannerAttachment = new AttachmentBuilder(DEFAULT_CHAT_BANNER_PATH, { name: "vyntric-chat-welcome.gif" });
+              chatEmbed.setImage("attachment://vyntric-chat-welcome.gif");
+              chatFiles.push(chatBannerAttachment);
+            } else if (config.bannerUrl && config.bannerUrl.trim().length > 0) {
+              chatEmbed.setImage(config.bannerUrl.trim());
+            } else if (fs.existsSync(DEFAULT_BANNER_PATH)) {
+              const bannerAttachment = new AttachmentBuilder(DEFAULT_BANNER_PATH, { name: "vyntric-welcome.gif" });
+              chatEmbed.setImage("attachment://vyntric-welcome.gif");
+              chatFiles.push(bannerAttachment);
+            }
+
+            const sentMsg = await chatChannel.send({
+              content: pingText,
+              embeds: [chatEmbed],
+              files: chatFiles,
+            });
+
+            console.log(`[welcome:chat] Sent chat greeting card to #${chatChannel.name} for ${member.user.tag}`);
+
+            // Auto-remove welcome message after 10-30 minutes (default: 15 mins = 900,000 ms)
+            if (sentMsg) {
+              const autoDeleteMins = config.chatWelcomeAutoDeleteMinutes ?? 15;
+              if (autoDeleteMins > 0) {
+                const delayMs = autoDeleteMins * 60 * 1000;
+                scheduleChatWelcomeDeletion(
+                  member.client,
+                  sentMsg.id,
+                  chatChannel.id,
+                  member.guild.id,
+                  delayMs
+                );
+              }
+            }
           }
-
-          await chatChannel.send({
-            content: pingText,
-            embeds: [chatEmbed],
-            files: chatFiles,
-          });
-          console.log(`[welcome:chat] Sent chat greeting card to #${chatChannel.name} for ${member.user.tag}`);
         }
       } catch (err) {
         console.error("[welcome:chat:error]", err);

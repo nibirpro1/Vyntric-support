@@ -158,6 +158,14 @@ const command: Command = {
           .setDescription("Custom card text (supports markdown, \\n for new lines)")
           .setRequired(false)
       )
+      .addIntegerOption((opt) =>
+        opt
+          .setName("autodelete")
+          .setDescription("Auto delete after minutes (10 to 30 minutes, default 15, 0 to disable)")
+          .setMinValue(0)
+          .setMaxValue(60)
+          .setRequired(false)
+      )
   )
   .addSubcommand((sub) =>
     sub.setName("status").setDescription("View current Welcome & Leave configuration")
@@ -357,6 +365,7 @@ const command: Command = {
         const channel = interaction.options.getChannel("channel") as TextChannel | null;
         const ping = interaction.options.getString("ping");
         const description = interaction.options.getString("description")?.replace(/\\n/g, "\n");
+        const autodelete = interaction.options.getInteger("autodelete");
 
         const targetChannelId = channel ? channel.id : (config.chatWelcomeChannelId || "1560688449353420930");
 
@@ -365,7 +374,10 @@ const command: Command = {
           chatWelcomeChannelId: targetChannelId,
           ...(ping ? { chatWelcomePing: ping } : {}),
           ...(description ? { chatWelcomeDescription: description } : {}),
+          ...(autodelete !== null ? { chatWelcomeAutoDeleteMinutes: autodelete } : {}),
         });
+
+        const activeMins = autodelete !== null ? autodelete : (config.chatWelcomeAutoDeleteMinutes ?? 15);
 
         await interaction.reply({
           embeds: [
@@ -377,6 +389,11 @@ const command: Command = {
                   `✨ **Chat Welcome Status:** ${enabled ? "✅ Enabled" : "❌ Disabled"}`,
                   `💬 **Channel:** <#${targetChannelId}>`,
                   `👋 **Ping Line:** \`${ping || config.chatWelcomePing || "💜 Yoo, {user}"}\``,
+                  `⏱️ **Auto-Remove:** ${
+                    activeMins > 0
+                      ? `⏳ Auto-deletes after **${activeMins} minutes** (Chat stays clean)`
+                      : "Permanent (No auto-delete)"
+                  }`,
                   "",
                   "💡 When a new member joins, they will get a clean, stylish welcome card in this chat channel!",
                   "Run `/welcome test` to preview how both cards look!",
@@ -401,7 +418,13 @@ const command: Command = {
             },
             {
               name: "💬 Chat Greeting Card",
-              value: config.chatWelcomeEnabled ? `✅ Enabled in <#${config.chatWelcomeChannelId || "1560688449353420930"}>` : "❌ Disabled",
+              value: config.chatWelcomeEnabled
+                ? `✅ Enabled in <#${config.chatWelcomeChannelId || "1560688449353420930"}> (${
+                    (config.chatWelcomeAutoDeleteMinutes ?? 15) > 0
+                      ? `⏳ Auto-deletes in ${config.chatWelcomeAutoDeleteMinutes ?? 15}m`
+                      : "Permanent"
+                  })`
+                : "❌ Disabled",
               inline: true,
             },
             {

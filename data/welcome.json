@@ -18,6 +18,7 @@
     "chatWelcomePing": "👋 Welcome to the chat, {user}!",
     "chatWelcomeTitle": "⚡ Welcome to Vyntric!",
     "chatWelcomeDescription": "Hey {user}, welcome aboard! 🚀\nHave fun, chat with everyone & vibe with us in **Vyntric**! 🔥\n\n» Read rules in <#1554018991759032320> • Grab roles in <#1551792726243287130> ⚡",
+    "chatWelcomeAutoDeleteMinutes": 15,
     "updatedAt": 1794382000000
   }
 }

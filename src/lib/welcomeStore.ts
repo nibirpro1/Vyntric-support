@@ -21,6 +21,7 @@ export interface WelcomeConfig {
   chatWelcomeTitle?: string;
   chatWelcomeDescription?: string;
   chatWelcomeBannerUrl?: string | null;
+  chatWelcomeAutoDeleteMinutes?: number; // Minutes before auto-removing greeting card (e.g. 10 to 30 mins)
 }
 
 export const DEFAULT_OFFICIAL_BANNER_PATH = path.resolve(process.cwd(), "assets", "banners", "vyntric-welcome.gif");

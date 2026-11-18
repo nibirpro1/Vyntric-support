@@ -110,5 +110,13 @@ export default {
     } catch (err) {
       console.error("[vc247:init:error]", err);
     }
+
+    // Initialize Auto-Deletion for Chat Welcome Cards (10-30m auto removal)
+    try {
+      const { initChatWelcomeCleaner } = require("../lib/chatWelcomeCleaner");
+      initChatWelcomeCleaner(client);
+    } catch (err) {
+      console.error("[chatWelcomeCleaner:init:error]", err);
+    }
   },
 };

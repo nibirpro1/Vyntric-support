@@ -36,9 +36,27 @@ function resolveUserTempChannel(
   error?: string;
 } {
   const member = interaction.member as GuildMember | null;
-  if (!member || !member.voice.channel) {
+  if (!member) {
     return {
       member: null,
+      channel: null,
+      tempRecord: null,
+      isOwner: false,
+      error: "❌ Member not found.",
+    };
+  }
+
+  // 1. Identify channel: check if button was clicked inside the VC's text chat itself, or from user's current connected VC
+  let voiceCh: VoiceChannel | null = null;
+  if (interaction.channel && interaction.channel.isVoiceBased()) {
+    voiceCh = interaction.channel as VoiceChannel;
+  } else if (member.voice.channel && member.voice.channel.isVoiceBased()) {
+    voiceCh = member.voice.channel as VoiceChannel;
+  }
+
+  if (!voiceCh) {
+    return {
+      member,
       channel: null,
       tempRecord: null,
       isOwner: false,
@@ -46,7 +64,6 @@ function resolveUserTempChannel(
     };
   }
 
-  const voiceCh = member.voice.channel as VoiceChannel;
   const tempRecord = getTempChannel(voiceCh.id);
   if (!tempRecord) {
     return {
@@ -54,7 +71,18 @@ function resolveUserTempChannel(
       channel: voiceCh,
       tempRecord: null,
       isOwner: false,
-      error: "❌ You are not connected to an active temporary voice channel!",
+      error: "❌ This is not an active temporary voice channel!",
+    };
+  }
+
+  // Ensure member is actually connected to this temporary channel
+  if (!member.voice.channel || member.voice.channel.id !== voiceCh.id) {
+    return {
+      member,
+      channel: voiceCh,
+      tempRecord,
+      isOwner: false,
+      error: `❌ You must be connected to <#${voiceCh.id}> to use its controls!`,
     };
   }
 

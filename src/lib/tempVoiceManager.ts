@@ -177,6 +177,7 @@ export async function handleTempVoiceStateUpdate(
         .replace("{tag}", member.user.username);
 
       // Create new Voice Channel under category
+      const botId = guild.client.user?.id || (await guild.members.fetchMe()).id;
       const newChannel = await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildVoice,
@@ -184,12 +185,14 @@ export async function handleTempVoiceStateUpdate(
         userLimit: config.defaultUserLimit || 0,
         permissionOverwrites: [
           {
-            id: guild.roles.everyone.id,
+            id: guild.id,
             allow: [
               PermissionsBitField.Flags.ViewChannel,
               PermissionsBitField.Flags.Connect,
               PermissionsBitField.Flags.Speak,
               PermissionsBitField.Flags.Stream,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
             ],
           },
           {
@@ -199,11 +202,27 @@ export async function handleTempVoiceStateUpdate(
               PermissionsBitField.Flags.Connect,
               PermissionsBitField.Flags.Speak,
               PermissionsBitField.Flags.Stream,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
               PermissionsBitField.Flags.ManageChannels,
               PermissionsBitField.Flags.MoveMembers,
               PermissionsBitField.Flags.MuteMembers,
               PermissionsBitField.Flags.DeafenMembers,
               PermissionsBitField.Flags.PrioritySpeaker,
+            ],
+          },
+          {
+            id: botId,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.Connect,
+              PermissionsBitField.Flags.Speak,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.EmbedLinks,
+              PermissionsBitField.Flags.AttachFiles,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.ManageChannels,
+              PermissionsBitField.Flags.MoveMembers,
             ],
           },
         ],
@@ -226,8 +245,14 @@ export async function handleTempVoiceStateUpdate(
       };
       saveTempChannel(record);
 
+      // Post the Control Panel directly in the newly created voice channel's chat!
+      const panelPayload = buildInterfacePayload();
+      await newChannel.send(panelPayload).catch((err) => {
+        console.error("[tempvoice:send_vc_interface:error]", err);
+      });
+
       console.log(
-        `[tempvoice] Created temporary channel #${newChannel.name} for ${member.user.tag}`
+        `[tempvoice] Created temporary channel #${newChannel.name} with interactive interface for ${member.user.tag}`
       );
     } catch (err) {
       console.error("[tempvoice:j2c:create:error]", err);

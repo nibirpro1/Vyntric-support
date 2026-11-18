@@ -332,12 +332,6 @@ export async function handleLeaveTempChannel(
       );
     } else {
       // Channel still has members
-      const leaveMsg = await oldChannel
-        .send({
-          content: `🚪 **${member.displayName}** left the voice room. (${remainingHumans.size} member${remainingHumans.size === 1 ? "" : "s"} remaining)`,
-        })
-        .catch(() => null);
-      if (leaveMsg) setTimeout(() => leaveMsg.delete().catch(() => {}), 8000);
 
       // If a non-owner member left, remove them from the join order list
       if (member.id !== tempRecord.ownerId && tempRecord.memberJoinOrder) {
@@ -349,22 +343,6 @@ export async function handleLeaveTempChannel(
       if (member.id === tempRecord.ownerId) {
         const existingTimer = ownerLeaveTimers.get(tempRecord.channelId);
         if (existingTimer) clearTimeout(existingTimer.timeout);
-
-        // Find the 2nd person who joined after the owner
-        const nextInLineId =
-          tempRecord.memberJoinOrder?.find(
-            (id) =>
-              id !== member.id &&
-              oldChannel.members.has(id) &&
-              !oldChannel.members.get(id)?.user.bot
-          ) || remainingHumans.first()?.id;
-
-        const claimNotice = await oldChannel
-          .send({
-            content: `👑 **Room Owner left!** <@${tempRecord.ownerId}> has **5 minutes** to return. If they do not return, ownership will automatically transfer to the 2nd person who joined (<@${nextInLineId}>).`,
-          })
-          .catch(() => null);
-        if (claimNotice) setTimeout(() => claimNotice.delete().catch(() => {}), 20000);
 
         const timeout = setTimeout(async () => {
           ownerLeaveTimers.delete(tempRecord.channelId);
@@ -447,7 +425,7 @@ export async function handleLeaveTempChannel(
 
             await targetCh
               .send({
-                content: `👑 **Ownership Auto-Transferred:** <@${newOwnerId}> (2nd person who joined after the owner) is now the channel owner because <@${oldOwnerId}> was inactive for 5 minutes.`,
+                content: `👑 **Ownership Auto-Transferred:** <@${newOwnerId}> is now the channel owner.`,
               })
               .catch(() => {});
           } catch (e) {
@@ -712,31 +690,11 @@ export async function handleTempVoiceStateUpdate(
           console.log(
             `[tempvoice] Owner ${member.user.tag} returned within 5m grace period. Auto-transfer cancelled.`
           );
-
-          const ch = newState.channel as VoiceChannel | null;
-          if (ch) {
-            const cancelMsg = await ch
-              .send({
-                content: `👑 **Welcome back <@${member.id}>!** You returned within the 5-minute window; ownership retained.`,
-              })
-              .catch(() => null);
-            if (cancelMsg) setTimeout(() => cancelMsg.delete().catch(() => {}), 10_000);
-          }
         }
       }
 
-      const ch = newState.channel as VoiceChannel | null;
-      if (ch) {
-        const joinMsg = await ch
-          .send({
-            content: `👋 **${member.displayName}** joined the voice room. (${ch.members.size} members)`,
-          })
-          .catch(() => null);
-        if (joinMsg) setTimeout(() => joinMsg.delete().catch(() => {}), 8000);
-
-        // Update live interface embed
-        void updateVoiceChannelInterface(guild, newState.channelId);
-      }
+      // Update live interface embed
+      void updateVoiceChannelInterface(guild, newState.channelId);
     }
   }
 }

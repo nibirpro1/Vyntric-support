@@ -88,6 +88,16 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             name: "10. 🚨 Anti-Raid & Emergency Lockdown",
             value: "Mass-join raid detection, account age gate (< 3d), anti-mention raid, `/antiraid`, and `/lockdown`.",
             inline: false,
+          },
+          {
+            name: "11. 🔊 Join-to-Create (JTC) & TempVoice",
+            value: "Dynamic voice rooms, 15-button in-chat interactive panel, 5-minute delayed auto-transfer on owner leave, and status moderation (`/jtc-setup`, `/interface`, `/voice`, `/status`).",
+            inline: false,
+          },
+          {
+            name: "12. 👋 Welcome & Chat Greeting Cleaner",
+            value: "Custom member welcome cards, auto-roles, DM greetings, and short chat cards with automated 15-minute self-deletion (`/welcome`).",
+            inline: false,
           }
         )
         .setFooter({ text: `${BRAND.name} • Administrator System Guide` })
@@ -553,6 +563,122 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           }
         )
         .setFooter({ text: `${BRAND.footer} • Enterprise Anti-Raid Defense` })
+        .setTimestamp(),
+  },
+  {
+    id: "jtc",
+    name: "Join-to-Create & Temporary Voice Rooms",
+    emoji: "🔊",
+    shortDesc: "Astro/Base-Bot-1 style temporary VC system with live interactive chat panel",
+    embed: (guild: Guild) =>
+      new EmbedBuilder()
+        .setColor(BRAND.colors.primary)
+        .setTitle("🔊 Join-to-Create (JTC) & TempVoice System")
+        .setDescription(
+          `Advanced temporary voice channel management inspired by Astro Bot and Base-Bot-1.\n` +
+          `Members join the **Join To Create** lobby, and the bot instantly spins up a private room and posts an interactive control panel directly in the VC's text chat!`
+        )
+        .addFields(
+          {
+            name: "🛠️ Admin Setup Commands",
+            value:
+              "• `/jtc-setup` - Automatically creates the **Join To Create** category and lobby voice channel.\n" +
+              "• `/status` - Open the temporary channel status moderation settings panel.\n" +
+              "• `/interface` - Re-sends the interactive control panel inside your temporary voice channel chat if lost or scrolled past.",
+            inline: false,
+          },
+          {
+            name: "🎛️ In-Channel Interactive Control Panel",
+            value:
+              "Every generated room receives a dedicated control panel in its text chat with **15 interactive buttons**:\n" +
+              "• `⫿` **Name** - Rename channel via popup modal.\n" +
+              "• `👥` **Limit** - Set member count (0-99).\n" +
+              "• `🔒` **Privacy** - Toggle Lock / Unlock for `@everyone`.\n" +
+              "• `🕒` **Waiting Room** - Create an automated waiting queue.\n" +
+              "• `💬` **Chat** - Toggle visibility of text chat.\n" +
+              "• `👤+` **Trust** / `👤-` **Untrust** - Grant or revoke member access.\n" +
+              "• `📞` **Invite** - Generate quick invite link.\n" +
+              "• `🚫` **Kick** - Kick a disruptive member out of VC.\n" +
+              "• `🌐` **Region** - Change voice server region.\n" +
+              "• `⛔` **Block** / `✅` **Unblock** - Manage blacklist/whitelist.\n" +
+              "• `👑` **Claim** - Take ownership of an abandoned room.\n" +
+              "• `🚀` **Transfer** - Hand room ownership to another member.\n" +
+              "• `🗑️` **Delete** - Instantly close and delete room.",
+            inline: false,
+          },
+          {
+            name: "⏱️ Smart Delayed Owner Auto-Transfer",
+            value:
+              "• If the room owner disconnects, a **5-minute countdown** starts.\n" +
+              "• If the owner returns within 5 minutes, auto-transfer is cancelled.\n" +
+              "• If the owner does not return, the bot automatically promotes the next active member, renames the channel to `! <NewOwner>'s Channel`, and updates the interface panel!",
+            inline: false,
+          },
+          {
+            name: "⌨️ Slash Commands Alternative",
+            value:
+              "• `/voice lock` / `/voice unlock` - Lock or unlock room\n" +
+              "• `/voice hide` / `/voice unhide` - Hide or reveal room\n" +
+              "• `/voice name <text>` - Change room name\n" +
+              "• `/voice limit <number>` - Set member capacity\n" +
+              "• `/voice claim` / `/voice transfer member:@user` - Ownership management\n" +
+              "• `/voice kick member:@user` / `/voice block member:@user` - Member moderation",
+            inline: false,
+          }
+        )
+        .setFooter({ text: `${BRAND.name} • TempVoice System` })
+        .setTimestamp(),
+  },
+  {
+    id: "welcome",
+    name: "Welcome System & Chat Auto-Cleaner",
+    emoji: "👋",
+    shortDesc: "Join announcements, auto-roles, DM greetings, and 15m auto-delete chat cards",
+    embed: (guild: Guild) =>
+      new EmbedBuilder()
+        .setColor(0x2ecc71)
+        .setTitle("👋 Welcome System & Chat Auto-Cleaner")
+        .setDescription(
+          `Complete onboarding and member greeting suite for **${guild.name}** with intelligent anti-spam and auto-cleanup.`
+        )
+        .addFields(
+          {
+            name: "📢 Main Welcome Channel Announcement",
+            value:
+              "• `/welcome channel channel:[#channel]` - Set welcome announcement channel (e.g. `#〢ᴡᴇʟᴄᴏᴍᴇ`).\n" +
+              "• `/welcome message message:[text]` - Custom greeting template.\n" +
+              "• Supports rich variables: `{user}`, `{username}`, `{server}`, `{memberCount}`.\n" +
+              "• `/welcome test` - Test full welcome embed with server banner.",
+            inline: false,
+          },
+          {
+            name: "💬 General Chat Greeting Card with Auto-Delete",
+            value:
+              "• `/welcome chat channel:[#channel] [autodelete:10-30] [enabled:true]`\n" +
+              "• Sends a clean greeting banner card directly into general chat (e.g. `#〢ᴄʜᴀᴛ`).\n" +
+              "• **Auto-Deletion Engine:** Automatically deletes the welcome card after **10 to 30 minutes** (default: 15m) so general chat never gets cluttered!\n" +
+              "• **Duplicate Suppression:** Built-in filter ensures no duplicate greetings are sent even during network reconnections.",
+            inline: false,
+          },
+          {
+            name: "🎭 Automatic Join Roles (`autorole`)",
+            value:
+              "• Automatically assigns default roles to every new member on join.\n" +
+              "• Active auto-roles in ${guild.name}:\n" +
+              "  - `Members` (`1552923825753038939`)\n" +
+              "  - `Event Ping` (`1551797643628511293`)\n" +
+              "  - `Vyntric SMP PING` (`1508723281006428170`)",
+            inline: false,
+          },
+          {
+            name: "📬 Direct Message (DM) Greeting",
+            value:
+              "• `/welcome dm message:[text] enabled:[true|false]`\n" +
+              "• Delivers a warm welcoming direct message with server guidelines and navigation straight to new human members.",
+            inline: false,
+          }
+        )
+        .setFooter({ text: `${BRAND.name} • Member Onboarding Guide` })
         .setTimestamp(),
   },
 ];

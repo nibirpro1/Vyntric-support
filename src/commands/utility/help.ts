@@ -474,16 +474,114 @@ const CATEGORIES: CategoryDoc[] = [
       },
     ],
   },
+  {
+    id: "tempvoice",
+    label: "Join-to-Create & Temporary Voice",
+    emoji: "🔊",
+    description: "Dynamic temporary voice rooms with in-chat interactive panel, delayed owner transfer, and room controls.",
+    commands: [
+      {
+        name: "jtc-setup",
+        syntax: "/jtc-setup",
+        summary: "Automatically create the Join To Create lobby category and voice channel.",
+        details: "Creates the category and '🔊 Join To Create' generator channel. Anyone who joins gets their own private room.",
+        permission: "Manage Channels / Admin",
+      },
+      {
+        name: "interface",
+        syntax: "/interface",
+        summary: "Resend the interactive 15-button control panel in your temporary voice chat.",
+        details: "Re-posts the full control interface directly inside the temporary voice channel's text chat.",
+      },
+      {
+        name: "voice",
+        syntax: "/voice <subcommand>",
+        summary: "Manage your temporary room (lock, unlock, name, limit, kick, block, claim, transfer).",
+        details: "Supports: `/voice lock`, `/voice unlock`, `/voice hide`, `/voice unhide`, `/voice name`, `/voice limit`, `/voice claim`, `/voice transfer`, `/voice kick`, `/voice block`, `/voice unblock`, `/voice status`.",
+      },
+      {
+        name: "status",
+        syntax: "/status",
+        summary: "View and configure room status moderation (mute toggle, extra owners, whitelist, blacklist, endgame).",
+        details: "Open the Base-Bot-1 style status panel to moderate room members and permissions.",
+      },
+      {
+        name: "247",
+        syntax: "/247 [action:join|leave|status]",
+        summary: "Lock VyntricBD into a voice channel 24/7 with auto-reconnection.",
+        details: "Keeps the bot connected permanently even through bot reboots and network moves.",
+        permission: "VC Mod Perms / Admin",
+      },
+    ],
+  },
+  {
+    id: "welcome",
+    label: "Welcome & Chat Auto-Cleaner",
+    emoji: "👋",
+    description: "Welcome announcements, auto-roles, DM greetings, and 15-minute auto-deleting general chat cards.",
+    commands: [
+      {
+        name: "welcome",
+        syntax: "/welcome <subcommand>",
+        summary: "Configure server onboarding, auto-roles, DM messages, and chat greeting cards.",
+        details: "Subcommands: `channel`, `message`, `chat`, `autorole`, `dm`, `leave`, `test`, `view`.",
+        permission: "Administrator",
+      },
+      {
+        name: "welcome chat",
+        syntax: "/welcome chat channel:[#channel] [autodelete:10-30] [enabled:true]",
+        summary: "Send greeting cards to general chat with automatic 15-minute self-deletion.",
+        details: "Automatically cleans up after 10-30 minutes so general chat stays tidy and free of clutter.",
+        permission: "Administrator",
+      },
+      {
+        name: "welcome autorole",
+        syntax: "/welcome autorole role:[@role] action:[add|remove]",
+        summary: "Configure roles automatically given to new members on join.",
+        details: "Automatically assigns configured roles like Members, Event Ping, and Vyntric SMP PING.",
+        permission: "Administrator",
+      },
+    ],
+  },
+  {
+    id: "security",
+    label: "Anti-Raid, Anti-Nuke & Lockdown",
+    emoji: "🚨",
+    description: "Multi-vector raid defense, panic mode, account age gating, and disaster prevention.",
+    commands: [
+      {
+        name: "antiraid",
+        syntax: "/antiraid <status|panic|raiders|sweep|risk>",
+        summary: "Monitor join velocity, trigger emergency panic, and inspect raider profiles.",
+        details: "Detects rapid join waves, isolates high-risk accounts, and provides 1-click bulk purge.",
+        permission: "Security Perms / Admin",
+      },
+      {
+        name: "lockdown / unlock",
+        syntax: "/lockdown scope:[server|channel] | /unlock",
+        summary: "Instantly lock down channels or the entire server to stop raids.",
+        details: "Blocks @everyone from sending messages and typing in locked channels.",
+        permission: "Security Perms / Admin",
+      },
+      {
+        name: "antinuke",
+        syntax: "/antinuke <status|whitelist>",
+        summary: "Prevent unauthorized bot adds, mass channel deletions, and rogue admin actions.",
+        details: "Unauthorized bots are immediately kicked and the inviter's permissions are stripped.",
+        permission: "Server Owner / Admin",
+      },
+    ],
+  },
 ];
 
 function buildOverviewEmbed(guildName?: string, iconUrl?: string | null) {
   const totalCommands = CATEGORIES.reduce((acc, cat) => acc + cat.commands.length, 0);
 
   const embed = new EmbedBuilder()
-    .setColor(0x2b2d31)
-    .setTitle(`📖 ${guildName || "Vyntric"} • Complete Command Guide`)
+    .setColor(BRAND.colors.primary)
+    .setTitle(`📖 ${guildName || BRAND.name} • Complete Command Guide`)
     .setDescription(
-      `Welcome to **Plugsy**! Below is the complete catalog of all **${totalCommands} commands** available on this server.\n\n` +
+      `Welcome to **${BRAND.name}**! Below is the complete catalog of all **${totalCommands} commands** available on this server.\n\n` +
         `Select a category from the **dropdown menu below** to see full syntax, required permissions, and examples for each command!`
     )
     .setThumbnail(iconUrl || null)
@@ -552,21 +650,26 @@ function buildSelectMenu(currentId?: string) {
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("help")
-    .setDescription("View documentation, usage, and examples for all Plugsy commands")
+    .setDescription(`View documentation, usage, and examples for all ${BRAND.name} commands`)
     .addStringOption((opt) =>
       opt
         .setName("command")
         .setDescription("View detailed documentation for a specific command")
         .setRequired(false)
         .addChoices(
+          { name: "jtc-setup (TempVoice)", value: "jtc-setup" },
+          { name: "voice (TempVoice)", value: "voice" },
+          { name: "interface (TempVoice)", value: "interface" },
+          { name: "welcome", value: "welcome" },
           { name: "giveaway", value: "giveaway" },
           { name: "announcement", value: "announcement" },
           { name: "panel (tickets)", value: "panel" },
           { name: "ticket", value: "ticket" },
-          { name: "ban", value: "ban" },
-          { name: "kick", value: "kick" },
           { name: "timeout", value: "timeout" },
           { name: "automod", value: "automod" },
+          { name: "antiraid", value: "antiraid" },
+          { name: "antinuke", value: "antinuke" },
+          { name: "lockdown", value: "lockdown" },
           { name: "play (music)", value: "play" },
           { name: "setup", value: "setup" },
           { name: "tier", value: "tier" },

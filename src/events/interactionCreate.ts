@@ -11,6 +11,7 @@ import { handleGiveawayButton } from "../lib/giveawayManager";
 import { logCommandExecution } from "../lib/loggingStore";
 import { handleVoiceReportButton } from "../interactions/voiceReportInteractions";
 import { handleAntiRaidButton } from "../lib/antiraidManager";
+import { handleTempVoiceInteraction } from "../interactions/tempVoiceInteractions";
 
 async function safeError(interaction: Interaction) {
   if (!interaction.isRepliable()) return;
@@ -88,6 +89,18 @@ export default {
     }
 
     try {
+      // TempVoice / J2C Interactions
+      if (
+        (interaction.isButton() ||
+          interaction.isModalSubmit() ||
+          interaction.isUserSelectMenu() ||
+          interaction.isStringSelectMenu()) &&
+        (interaction.customId.startsWith("voice_") || interaction.customId.startsWith("tv_"))
+      ) {
+        await handleTempVoiceInteraction(interaction);
+        return;
+      }
+
       if (interaction.isButton() && interaction.customId.startsWith("antiraid:")) {
         await handleAntiRaidButton(interaction);
         return;

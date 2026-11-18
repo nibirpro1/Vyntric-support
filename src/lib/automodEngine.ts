@@ -1139,6 +1139,9 @@ export function resetUserAutoModStrikes(guildId: string, userId: string): void {
   userViolationStrikes.delete(`${guildId}:${userId}`);
 }
 
+// In-flight / recently processed AutoMod infraction deduplication: messageId -> timestamp
+const processedInfractionMessageIds = new Map<string, number>();
+
 function recordViolationStrike(guildId: string, userId: string): number {
   const key = `${guildId}:${userId}`;
   const now = Date.now();
@@ -1361,6 +1364,23 @@ export async function executeAutoModCheck(
   }
 
   if (!violated) return false;
+
+  // Deduplicate: prevent double enforcement on duplicate events / rapid dispatches
+  if (message.id) {
+    const lastProcessed = processedInfractionMessageIds.get(message.id);
+    if (lastProcessed && Date.now() - lastProcessed < 30_000) {
+      return true; // Already processed by AutoMod
+    }
+    processedInfractionMessageIds.set(message.id, Date.now());
+
+    // Prune entries older than 60s
+    const now = Date.now();
+    for (const [id, time] of processedInfractionMessageIds.entries()) {
+      if (now - time > 60_000) {
+        processedInfractionMessageIds.delete(id);
+      }
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Enforcement: Delete + Escalating Timeout + Notice + DM + Log

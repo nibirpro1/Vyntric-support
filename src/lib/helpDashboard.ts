@@ -41,7 +41,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         .addFields(
           {
             name: "1. 🛡️ Modular Permission Roles (`/perms`)",
-            value: "12 dedicated feature roles to grant permissions to staff without making them Administrator.",
+            value: "13 dedicated feature roles to grant permissions to staff without making them Administrator.",
             inline: false,
           },
           {
@@ -103,14 +103,14 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         .setColor(0x3498db)
         .setTitle("🛡️ Modular Feature Permission Roles System")
         .setDescription(
-          `Instead of giving full Administrator access to staff, you can assign these **12 dedicated roles** to grant access to individual features!\n\n` +
+          `Instead of giving full Administrator access to staff, you can assign these **13 dedicated roles** to grant access to individual features!\n\n` +
           `**Commands to manage permissions:**\n` +
           `• \`/perms give member:@user feature:<name>\` - Grant permission\n` +
           `• \`/perms remove member:@user feature:<name>\` - Revoke permission\n` +
           `• \`/perms check member:@user\` - View all permissions for a user\n` +
           `• \`/perms list feature:<name>\` - See who has this permission\n` +
-          `• \`/perms roles\` - View all 12 permission roles\n\n` +
-          `**All 12 Dedicated Roles in ${guild.name}:**`
+          `• \`/perms roles\` - View all 13 permission roles\n\n` +
+          `**All 13 Dedicated Roles in ${guild.name}:**`
         );
 
       for (const def of PERMISSION_ROLE_DEFS) {

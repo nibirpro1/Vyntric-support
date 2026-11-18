@@ -7,6 +7,7 @@ export type FeaturePermission =
   | "media"
   | "announce_server"
   | "announce_uhc"
+  | "announce_smp"
   | "announce"
   | "giveaway"
   | "vcmod"
@@ -58,6 +59,14 @@ export const PERMISSION_ROLE_DEFS: PermissionRoleDef[] = [
     emoji: "⚔️",
     color: 0xe74c3c,
     description: "Publish announcements and events in UHC channels (/announcement)",
+  },
+  {
+    key: "announce_smp",
+    name: "⛏️ SMP Announce",
+    defaultId: "1572502172992798730",
+    emoji: "⛏️",
+    color: 0x2ecc71,
+    description: "Publish announcements, rules & votes in SMP channels",
   },
   {
     key: "giveaway",

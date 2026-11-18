@@ -38,6 +38,7 @@ const command: Command = {
               { name: "🖼️ Media & Attachments (🖼️ Media Perms)", value: "media" },
               { name: "📢 Server Announce (📢 Server Announce)", value: "announce_server" },
               { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
+              { name: "⛏️ SMP Announce (⛏️ SMP Announce)", value: "announce_smp" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔀 VC Move (🔀 Move Perms)", value: "move" },
@@ -69,6 +70,7 @@ const command: Command = {
               { name: "🖼️ Media & Attachments (🖼️ Media Perms)", value: "media" },
               { name: "📢 Server Announce (📢 Server Announce)", value: "announce_server" },
               { name: "⚔️ UHC Announce (⚔️ UHC Announce)", value: "announce_uhc" },
+              { name: "⛏️ SMP Announce (⛏️ SMP Announce)", value: "announce_smp" },
               { name: "🎁 Giveaways (🎁 Giveaway Perms)", value: "giveaway" },
               { name: "🎙️ Voice Mod (🎙️ VC Mod Perms)", value: "vcmod" },
               { name: "🔀 VC Move (🔀 Move Perms)", value: "move" },
@@ -105,6 +107,7 @@ const command: Command = {
               { name: "🖼️ Media & Attachments", value: "media" },
               { name: "📢 Server Announce", value: "announce_server" },
               { name: "⚔️ UHC Announce", value: "announce_uhc" },
+              { name: "⛏️ SMP Announce", value: "announce_smp" },
               { name: "🎁 Giveaways", value: "giveaway" },
               { name: "🎙️ Voice Mod", value: "vcmod" },
               { name: "🔀 VC Move", value: "move" },
@@ -117,7 +120,7 @@ const command: Command = {
         )
     )
     .addSubcommand((sub) =>
-      sub.setName("roles").setDescription("Display all 12 modular feature permission roles and their status")
+      sub.setName("roles").setDescription("Display all 13 modular feature permission roles and their status")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {

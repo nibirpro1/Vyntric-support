@@ -7,7 +7,8 @@ import {
   GuildMember,
 } from "discord.js";
 import { AutoModConfig, AutoModPunishment, getAutoModConfig } from "./automodStore";
-import { getSettings } from "./store";
+import { getSettings, findTicketByChannel } from "./store";
+import { hasFeaturePermission } from "./permissionRolesStore";
 import { getLoggingConfig } from "./loggingStore";
 import { BRAND } from "./brand";
 
@@ -1255,15 +1256,26 @@ export async function executeAutoModCheck(
   let severity: "high" | "soft" = "high";
 
   // Feature permission role evaluations:
+  const channelName =
+    "name" in message.channel && typeof message.channel.name === "string"
+      ? message.channel.name.toLowerCase()
+      : "";
+  const ticket = findTicketByChannel(message.channel.id);
+  const isPartnerTicketChannel = Boolean(
+    (ticket && ticket.type === "partnership") ||
+      channelName.startsWith("partner-") ||
+      channelName.startsWith("partner")
+  );
+
   const hasLinkPerms = Boolean(
-    member &&
-    (
-      (autoMod.linkPermRoleId && member.roles.cache.has(autoMod.linkPermRoleId)) ||
-      member.roles.cache.some((r) => {
-        const n = r.name.toLowerCase();
-        return n.includes("link perm") || n.includes("link access");
-      })
-    )
+    isPartnerTicketChannel ||
+      (member &&
+        (hasFeaturePermission(member, "link") ||
+          (autoMod.linkPermRoleId && member.roles.cache.has(autoMod.linkPermRoleId)) ||
+          member.roles.cache.some((r) => {
+            const n = r.name.toLowerCase();
+            return n.includes("link perm") || n.includes("link access");
+          })))
   );
 
   const hasMentionPerms = Boolean(

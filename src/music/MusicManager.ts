@@ -146,6 +146,9 @@ export class MusicManager {
       currentTrack: null,
       volume: 80,
       loopMode: "off",
+      autoplay: true,
+      history: [],
+      lastPlayedTrack: null,
       isPlaying: false,
     };
 
@@ -435,6 +438,133 @@ export class MusicManager {
     return tracks;
   }
 
+  public async getAutoplayRecommendation(queue: GuildQueue, lastTrack: Track): Promise<Track | null> {
+    // 1. Primary: Extract YouTube video ID & use YouTube Mix (list=RD{videoId})
+    const ytMatch = lastTrack.url.match(/(?:v=|youtu\.be\/|embed\/|\/v\/|\/shorts\/)([0-9A-Za-z_-]{11})/);
+    const videoId = ytMatch ? ytMatch[1] : (lastTrack.id.startsWith("yt_") ? lastTrack.id.replace("yt_", "") : null);
+
+    if (videoId && videoId.length === 11) {
+      const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+      const candidates: Track[] = await new Promise((resolve) => {
+        execFile(
+          YTDLP_BIN,
+          [
+            "--flat-playlist",
+            "--dump-json",
+            "--no-warnings",
+            "-q",
+            "--playlist-end",
+            "20",
+            mixUrl,
+          ],
+          { timeout: 12_000, maxBuffer: 10 * 1024 * 1024 },
+          (err, stdout) => {
+            if (err || !stdout) return resolve([]);
+            try {
+              const lines = stdout.trim().split("\n").filter(Boolean);
+              const list: Track[] = [];
+              for (const line of lines) {
+                try {
+                  const item = JSON.parse(line);
+                  const id = item.id;
+                  if (!id) continue;
+                  const title = item.title || "";
+                  if (!title || title.includes("[Private video]") || title.includes("[Deleted video]")) continue;
+                  const durSec = Math.round(item.duration || 0);
+                  list.push({
+                    id: `yt_${id}`,
+                    title,
+                    url: `https://www.youtube.com/watch?v=${id}`,
+                    durationSeconds: durSec,
+                    durationFormatted: durSec > 0 ? formatSeconds(durSec) : "Live / Unknown",
+                    thumbnail: item.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+                    author: item.uploader || item.channel || "YouTube Artist",
+                    requesterId: "autoplay",
+                    requesterTag: "Vyntric Radio",
+                    platform: "youtube",
+                  });
+                } catch {}
+              }
+              resolve(list);
+            } catch {
+              resolve([]);
+            }
+          }
+        );
+      });
+
+      for (const candidate of candidates) {
+        const rawId = candidate.id.replace("yt_", "");
+        const alreadyInHistory =
+          queue.history.includes(candidate.id) ||
+          queue.history.includes(candidate.url) ||
+          queue.history.includes(rawId) ||
+          queue.history.some((h) => h.includes(rawId));
+        const alreadyInQueue = queue.tracks.some(
+          (t) => t.id === candidate.id || t.url === candidate.url || t.url.includes(rawId)
+        );
+        const isCurrent =
+          queue.currentTrack &&
+          (queue.currentTrack.id === candidate.id || queue.currentTrack.url.includes(rawId));
+
+        if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
+          return candidate;
+        }
+      }
+    }
+
+    // 2. Secondary fallback: Search with yt-search
+    try {
+      const cleanTitle = lastTrack.title
+        .replace(/\(official\s*(music\s*)?video\)/gi, "")
+        .replace(/\[official\s*(music\s*)?video\]/gi, "")
+        .replace(/\(audio\)/gi, "")
+        .replace(/\[audio\]/gi, "")
+        .replace(/\(lyrics?\)/gi, "")
+        .trim();
+
+      const query =
+        lastTrack.author && lastTrack.author !== "YouTube Artist"
+          ? `${lastTrack.author} songs`
+          : `${cleanTitle} mix`;
+
+      const searchRes = await ytSearch({ query });
+      if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+        for (const video of searchRes.videos.slice(0, 10)) {
+          const vId = video.videoId;
+          const alreadyInHistory =
+            queue.history.includes(`yt_${vId}`) ||
+            queue.history.includes(video.url) ||
+            queue.history.includes(vId) ||
+            queue.history.some((h) => h.includes(vId));
+          const alreadyInQueue = queue.tracks.some((t) => t.id === `yt_${vId}` || t.url === video.url);
+          const isCurrent =
+            queue.currentTrack &&
+            (queue.currentTrack.id === `yt_${vId}` || queue.currentTrack.url.includes(vId));
+
+          if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
+            return {
+              id: `yt_${vId}`,
+              title: video.title,
+              url: video.url,
+              durationSeconds: video.duration?.seconds || 0,
+              durationFormatted: video.duration?.timestamp || formatSeconds(video.duration?.seconds || 0),
+              thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+              author: video.author?.name || "YouTube Creator",
+              requesterId: "autoplay",
+              requesterTag: "Vyntric Radio",
+              platform: "youtube",
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[music:autoplay:ytSearch:fallback]", err?.message || err);
+    }
+
+    return null;
+  }
+
   public async playNext(guildId: string): Promise<void> {
     const queue = this.queues.get(guildId);
     if (!queue) return;
@@ -563,13 +693,20 @@ export class MusicManager {
     }
   }
 
-  private handleTrackEnd(guildId: string): void {
+  private async handleTrackEnd(guildId: string): Promise<void> {
     const queue = this.queues.get(guildId);
     if (!queue) return;
 
     this.killStreamProcesses(queue);
 
     if (queue.currentTrack) {
+      queue.lastPlayedTrack = queue.currentTrack;
+      const trackKey = queue.currentTrack.id || queue.currentTrack.url;
+      if (!queue.history.includes(trackKey)) {
+        queue.history.push(trackKey);
+        if (queue.history.length > 100) queue.history.shift();
+      }
+
       if (queue.loopMode === "track") {
         queue.tracks.unshift(queue.currentTrack);
       } else if (queue.loopMode === "queue") {
@@ -577,7 +714,45 @@ export class MusicManager {
       }
     }
 
+    // Autoplay (Fuego / YouTube Mix Radio):
+    // When the user's queue is empty, loop mode is not "track", and autoplay is enabled
+    if (queue.tracks.length === 0 && queue.autoplay && queue.loopMode !== "track" && queue.lastPlayedTrack) {
+      try {
+        const nextRec = await this.getAutoplayRecommendation(queue, queue.lastPlayedTrack);
+        if (nextRec) {
+          queue.tracks.push(nextRec);
+          queue.textChannel
+            .send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(BRAND.colors.primary)
+                  .setDescription(
+                    `📻 **Autoplay (Radio Mode):** Enqueued [**${nextRec.title}**](${nextRec.url}) \`[${nextRec.durationFormatted}]\` • *Recommended based on ${queue.lastPlayedTrack.title}*`
+                  ),
+              ],
+            })
+            .catch(() => {});
+        }
+      } catch (err: any) {
+        console.error(`[music:autoplay:${guildId}] Failed to get recommendation:`, err?.message || err);
+      }
+    }
+
     this.playNext(guildId);
+  }
+
+  public toggleAutoplay(guildId: string): boolean {
+    const queue = this.queues.get(guildId);
+    if (!queue) return false;
+    queue.autoplay = !queue.autoplay;
+    return queue.autoplay;
+  }
+
+  public setAutoplay(guildId: string, enabled: boolean): boolean {
+    const queue = this.queues.get(guildId);
+    if (!queue) return false;
+    queue.autoplay = enabled;
+    return queue.autoplay;
   }
 
   public skip(guildId: string): boolean {
@@ -709,8 +884,8 @@ export class MusicManager {
           `👤 **Artist / Channel:** ${track.author}`,
           `⏱️ **Progress:** ${progressBar}`,
           "",
-          `🔊 **Volume:** \`${queue.volume}%\`  |  🔁 **Loop:** \`${loopStatus}\`  |  📜 **Queue:** \`${queue.tracks.length} track(s)\``,
-          `🙋 **Requested by:** <@${track.requesterId}>`,
+          `🔊 **Volume:** \`${queue.volume}%\`  |  🔁 **Loop:** \`${loopStatus}\`  |  📻 **Autoplay:** \`${queue.autoplay ? "ON" : "OFF"}\`  |  📜 **Queue:** \`${queue.tracks.length} track(s)\``,
+          `🙋 **Requested by:** ${track.requesterId === "autoplay" ? "📻 **Vyntric Autoplay (Radio)**" : `<@${track.requesterId}>`}`,
         ].join("\n")
       )
       .setFooter({ text: "Vyntric Music • Click buttons below for quick control" });
@@ -771,7 +946,12 @@ export class MusicManager {
         .setCustomId("music:clear")
         .setLabel("Clear")
         .setEmoji("❌")
-        .setStyle(ButtonStyle.Secondary)
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("music:autoplay")
+        .setLabel(`Auto: ${queue.autoplay ? "ON" : "OFF"}`)
+        .setEmoji("📻")
+        .setStyle(queue.autoplay ? ButtonStyle.Success : ButtonStyle.Secondary)
     );
 
     return [row1, row2];
@@ -921,6 +1101,21 @@ export class MusicManager {
         this.clearQueue(guildId);
         await interaction.reply({ content: "🗑️ Cleared upcoming queue.", flags: MessageFlags.Ephemeral });
         await this.sendControllerMessage(queue);
+        break;
+      }
+      case "autoplay": {
+        const nextState = this.toggleAutoplay(guildId);
+        await interaction.reply({
+          content: nextState
+            ? "📻 **Autoplay (Radio Mode) enabled!** When the queue finishes, similar songs will play automatically like Fuego bot."
+            : "📻 **Autoplay disabled.** Playback will stop when the current queue finishes.",
+          flags: MessageFlags.Ephemeral,
+        });
+        await this.sendControllerMessage(queue);
+
+        if (nextState && !queue.isPlaying && queue.tracks.length === 0 && queue.lastPlayedTrack) {
+          this.handleTrackEnd(guildId);
+        }
         break;
       }
       default: {

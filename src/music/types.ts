@@ -30,6 +30,9 @@ export interface GuildQueue {
   currentTrack: Track | null;
   volume: number; // 1-100
   loopMode: LoopMode;
+  autoplay: boolean; // Autoplay / Radio Mode (like Fuego Bot)
+  history: string[]; // Played track IDs / URLs to avoid duplicate repeats
+  lastPlayedTrack?: Track | null;
   controllerMessage?: Message;
   isPlaying: boolean;
   idleTimer?: NodeJS.Timeout;

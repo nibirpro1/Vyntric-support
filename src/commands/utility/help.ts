@@ -389,6 +389,12 @@ const CATEGORIES: CategoryDoc[] = [
         summary: "Adjust music output volume.",
         details: "Default is 100%. Adjusts bot volume cleanly.",
       },
+      {
+        name: "autoplay",
+        syntax: "/autoplay enabled: [true|false]",
+        summary: "Toggle Fuego-style radio autoplay for similar songs.",
+        details: "Automatically finds and plays similar songs when the current queue finishes.",
+      },
     ],
   },
   {

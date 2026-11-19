@@ -414,7 +414,7 @@ export class MusicManager {
       }
 
       if (tracks.length > 0) {
-        return tracks;
+        return this.resolveTrackList(tracks);
       }
     }
 
@@ -456,7 +456,7 @@ export class MusicManager {
           requesterTag,
           platform: "youtube",
         });
-        return tracks;
+        return this.resolveTrackList(tracks);
       }
     } catch (err: any) {
       console.warn(`[music:search:ytSearch] query "${trimmed}" failed, falling back to yt-dlp:`, err?.message || err);
@@ -466,13 +466,13 @@ export class MusicManager {
     try {
       const dlpTracks = await this.searchYtDlp(trimmed, requesterId, requesterTag);
       if (dlpTracks.length > 0) {
-        return dlpTracks;
+        return this.resolveTrackList(dlpTracks);
       }
     } catch (err: any) {
       console.error("[music:search:ytdlp:error]", err?.message || err);
     }
 
-    return tracks;
+    return this.resolveTrackList(tracks);
   }
 
   public async getAutoplayRecommendation(queue: GuildQueue, lastTrack: Track): Promise<Track | null> {
@@ -660,11 +660,73 @@ export class MusicManager {
   }
 
   /**
+   * Resolves small batches of tracks proactively before returning from search.
+   */
+  private async resolveTrackList(tracks: Track[]): Promise<Track[]> {
+    if (!tracks || tracks.length === 0) return tracks;
+    if (tracks.length <= 5) {
+      const resolved: Track[] = [];
+      for (const t of tracks) {
+        resolved.push(await this.resolvePlayableTrack(t));
+      }
+      return resolved;
+    }
+    return tracks;
+  }
+
+  /**
+   * Searches for a clean, non-restricted audio or lyrical release of a track
+   * when YouTube blocks the official video with age or bot checks.
+   */
+  public async findCleanAlternative(track: Track): Promise<Track | null> {
+    const cleanTitle = track.title
+      .replace(/\(official\s*(music\s*)?video\)/gi, "")
+      .replace(/\[official\s*(music\s*)?video\]/gi, "")
+      .replace(/\(audio\)/gi, "")
+      .replace(/\[audio\]/gi, "")
+      .replace(/\(lyrics?\)/gi, "")
+      .trim();
+
+    const ytdl = await getYtdlClient();
+    const queries = [
+      `${cleanTitle} audio`,
+      `${cleanTitle} lyric`,
+      `${track.author} ${cleanTitle}`,
+      cleanTitle,
+    ];
+
+    for (const q of queries) {
+      try {
+        const searchRes = await ytSearch(q);
+        if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+          for (const v of searchRes.videos.slice(0, 5)) {
+            if (track.url.includes(v.videoId)) continue;
+            try {
+              await ytdl.getInfo(v.videoId);
+              console.log(`[music:resolve] Successfully found clean playable alternative: "${v.title}" (${v.videoId})`);
+              return {
+                ...track,
+                id: `yt_${v.videoId}`,
+                title: v.title || track.title,
+                url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
+                thumbnail: v.thumbnail || track.thumbnail,
+                durationSeconds: v.duration?.seconds || track.durationSeconds,
+                durationFormatted: v.duration?.timestamp || track.durationFormatted,
+              };
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  /**
    * Proactively verifies if a track is playable. If YouTube blocks it due to age restrictions
    * or bot checks (sign-in required), automatically finds a clean audio/lyric alternative
    * release of the same song so it streams seamlessly without failing.
    */
-  private async resolvePlayableTrack(track: Track): Promise<Track> {
+  public async resolvePlayableTrack(track: Track): Promise<Track> {
     if (track.platform !== "youtube") return track;
 
     try {
@@ -683,40 +745,8 @@ export class MusicManager {
 
       if (isRestricted) {
         console.warn(`[music:resolve] Track "${track.title}" is restricted (${msg}). Finding clean audio alternative...`);
-        const cleanTitle = track.title
-          .replace(/\(official\s*(music\s*)?video\)/gi, "")
-          .replace(/\[official\s*(music\s*)?video\]/gi, "")
-          .replace(/\(audio\)/gi, "")
-          .replace(/\[audio\]/gi, "")
-          .replace(/\(lyrics?\)/gi, "")
-          .trim();
-
-        const ytdl = await getYtdlClient();
-        const queries = [`${cleanTitle} audio`, `${cleanTitle} lyric`, cleanTitle];
-
-        for (const q of queries) {
-          try {
-            const searchRes = await ytSearch(q);
-            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
-              for (const v of searchRes.videos.slice(0, 5)) {
-                if (track.url.includes(v.videoId)) continue;
-                try {
-                  await ytdl.getInfo(v.videoId);
-                  console.log(`[music:resolve] Successfully substituted clean playable version: "${v.title}" (${v.videoId})`);
-                  return {
-                    ...track,
-                    id: `yt_${v.videoId}`,
-                    title: v.title || track.title,
-                    url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
-                    thumbnail: v.thumbnail || track.thumbnail,
-                    durationSeconds: v.duration?.seconds || track.durationSeconds,
-                    durationFormatted: v.duration?.timestamp || track.durationFormatted,
-                  };
-                } catch {}
-              }
-            }
-          } catch {}
-        }
+        const alt = await this.findCleanAlternative(track);
+        if (alt) return alt;
       }
     }
     return track;
@@ -810,13 +840,38 @@ export class MusicManager {
             { stdio: ["pipe", "pipe", "ignore"] }
           );
 
+          ffmpeg.stdin.on("error", (err: any) => {
+            if (err?.code !== "EPIPE" && err?.code !== "ERR_STREAM_DESTROYED") {
+              console.error(`[music:ffmpeg:stdin:${guildId}]`, err?.message || err);
+            }
+          });
+
           ytdlStream.pipe(ffmpeg.stdin);
           queue.streamProcesses = [ffmpeg];
 
-          ytdlStream.on("error", (err) => {
+          ytdlStream.on("error", async (err) => {
             console.error(`[music:ytdlStream:${guildId}] stream error:`, err?.message || err);
             this.killStreamProcesses(queue);
             if (queue.currentTrack) {
+              const errMsg = err?.message || "";
+              const isRestricted =
+                errMsg.includes("confirm your age") ||
+                errMsg.includes("not a bot") ||
+                errMsg.includes("Sign in") ||
+                errMsg.includes("cookie");
+
+              // If stream aborted due to age or bot restrictions, attempt seamless recovery with clean audio
+              if (isRestricted && queue.currentTrack.platform === "youtube") {
+                console.log(`[music:recovery:${guildId}] Attempting clean audio recovery for: ${queue.currentTrack.title}`);
+                const cleanAlt = await this.findCleanAlternative(queue.currentTrack);
+                if (cleanAlt) {
+                  console.log(`[music:recovery:${guildId}] Resuming playback with verified alternative: ${cleanAlt.title}`);
+                  queue.tracks.unshift(cleanAlt);
+                  await this.playNext(guildId);
+                  return;
+                }
+              }
+
               queue.consecutiveErrors = (queue.consecutiveErrors || 0) + 1;
               if (queue.consecutiveErrors >= 3) {
                 console.warn(`[music:throttle:${guildId}] Pausing autoplay after 3 consecutive stream errors.`);
@@ -893,6 +948,12 @@ export class MusicManager {
             ],
             { stdio: ["pipe", "pipe", "ignore"] }
           );
+
+          ffmpeg.stdin.on("error", (err: any) => {
+            if (err?.code !== "EPIPE" && err?.code !== "ERR_STREAM_DESTROYED") {
+              console.error(`[music:ffmpeg:stdin:${guildId}]`, err?.message || err);
+            }
+          });
 
           ytdlp.stdout.pipe(ffmpeg.stdin);
           queue.streamProcesses = [ytdlp, ffmpeg];

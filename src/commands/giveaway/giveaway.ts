@@ -17,6 +17,7 @@ import {
   parseDuration,
   rerollGiveaway,
   scheduleGiveawayTimer,
+  syncSecretWinnerToDiscord,
 } from "../../lib/giveawayManager";
 import {
   addGiveawayManagerRole,
@@ -27,6 +28,7 @@ import {
   getGiveawayGuildSettings,
   Giveaway,
   removeGiveawayManagerRole,
+  resolveGiveaway,
   saveGiveaway,
   setSecretWinner,
 } from "../../lib/giveawayStore";
@@ -237,10 +239,10 @@ const command: Command = {
     // ─────────────────────────────────────────────────────────────
     // PERMISSION CHECK
     // ─────────────────────────────────────────────────────────────
-    if (sub === "role" || sub === "setwinner" || sub === "resetwinner") {
+    if (sub === "role") {
       if (!isServerAdmin) {
         await interaction.reply({
-          content: "❌ **Permission Denied:** Only Server Administrators can configure giveaway roles or secret winner controls.",
+          content: "❌ **Permission Denied:** Only Server Administrators can configure giveaway manager roles.",
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -333,9 +335,9 @@ const command: Command = {
           secretWinner = null;
         }
 
-        if (secretWinner && !isServerAdmin) {
+        if (secretWinner && !canManageGiveaways) {
           await interaction.reply({
-            content: "❌ Only server administrators can set secret winners.",
+            content: "❌ You do not have permission to configure secret winners.",
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -404,7 +406,7 @@ const command: Command = {
           partnerGuildId: partnerGuildId || null,
           partnerGuildName: partnerGuildName || null,
           secretWinnerIds: secretWinner ? [secretWinner.id] : [],
-          entries: secretWinner ? [secretWinner.id] : [],
+          entries: [], // Empty at start: secret winner is NOT leaked in View Entries or already-entered state
           startTime: now,
           endTime,
           ended: false,
@@ -432,6 +434,11 @@ const command: Command = {
             embeds: [buildGiveawayEmbed(initialGiveaway)],
             components: buildGiveawayComponents(initialGiveaway),
           }).catch(() => {});
+
+          // 3. Sync secret winner to Discord private staff backup
+          if (secretWinner) {
+            await syncSecretWinnerToDiscord(initialGiveaway, client);
+          }
 
           const replyLines = [
             `✅ **Giveaway launched successfully in <#${targetChannel.id}>!**`,
@@ -474,24 +481,44 @@ const command: Command = {
       }
 
       case "end": {
-        const messageId = interaction.options.getString("message_id", true).trim();
+        const inputId = interaction.options.getString("message_id", true);
         const winnerMode = interaction.options.getString("winner_mode");
         const forcedWinner = interaction.options.getUser("winner");
         const forceRandom =
           winnerMode === "random" || (interaction.options.getBoolean("force_random") ?? false);
 
-        if (winnerMode === "secret" && !forcedWinner) {
+        const g = resolveGiveaway(inputId, guildId);
+        if (!g) {
           await interaction.reply({
-            content:
-              "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `winner` option!",
+            content: `❌ Could not find an active giveaway matching \`${inputId}\`.\nPlease provide a valid Message ID, message link, or prize name!`,
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
+        if (g.ended) {
+          await interaction.reply({
+            content: `❌ Giveaway **${g.prize}** has already ended.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // If secret mode selected but no forced winner specified, check if one was already pre-configured
+        if (winnerMode === "secret" && !forcedWinner) {
+          if (!g.secretWinnerIds || g.secretWinnerIds.length === 0) {
+            await interaction.reply({
+              content:
+                "❌ No secret winner was pre-configured for this giveaway. Please specify a user in the `winner` option!",
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
+        }
+
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        const result = await endGiveaway(messageId, client, forcedWinner?.id, forceRandom);
+        const result = await endGiveaway(g.messageId, client, forcedWinner?.id, forceRandom);
         if (!result.success) {
           await interaction.editReply({
             content: `❌ ${result.message || "Could not end giveaway."}`,
@@ -506,24 +533,38 @@ const command: Command = {
       }
 
       case "reroll": {
-        const messageId = interaction.options.getString("message_id", true).trim();
+        const inputId = interaction.options.getString("message_id", true);
         const winnerMode = interaction.options.getString("winner_mode");
         let secretWinner = interaction.options.getUser("secret_winner");
 
-        if (winnerMode === "random") {
-          secretWinner = null;
-        } else if (winnerMode === "secret" && !secretWinner) {
+        const g = resolveGiveaway(inputId, guildId);
+        if (!g) {
           await interaction.reply({
-            content:
-              "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `secret_winner` option!",
+            content: `❌ Could not find a giveaway matching \`${inputId}\`.\nPlease provide a valid Message ID, message link, or prize name!`,
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        if (secretWinner && !isServerAdmin) {
+        if (winnerMode === "random") {
+          secretWinner = null;
+        } else if (winnerMode === "secret" && !secretWinner) {
+          // If secret mode selected without specifying a user, check if there is an unused pre-set secret winner
+          const unusedSecret = g.secretWinnerIds?.find((id) => !g.winnerIds.includes(id));
+          if (!unusedSecret) {
+            await interaction.reply({
+              content:
+                "❌ You selected **Secret Forced Winner** mode, but did not specify a user in the `secret_winner` option!",
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
+          secretWinner = { id: unusedSecret } as any;
+        }
+
+        if (secretWinner && !canManageGiveaways) {
           await interaction.reply({
-            content: "❌ Only server administrators can secretly choose reroll winners.",
+            content: "❌ You do not have permission to secretly choose reroll winners.",
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -531,7 +572,7 @@ const command: Command = {
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        const result = await rerollGiveaway(messageId, client, secretWinner?.id);
+        const result = await rerollGiveaway(g.messageId, client, secretWinner?.id);
         if (!result.success) {
           await interaction.editReply({
             content: `❌ ${result.message || "Could not reroll giveaway."}`,
@@ -546,62 +587,95 @@ const command: Command = {
       }
 
       case "setwinner": {
-        const messageId = interaction.options.getString("message_id", true).trim();
+        const inputId = interaction.options.getString("message_id", true);
         const targetUser = interaction.options.getUser("user", true);
 
-        const ok = setSecretWinner(messageId, targetUser.id);
-        if (!ok) {
+        const g = resolveGiveaway(inputId, guildId);
+        if (!g) {
           await interaction.reply({
-            content: "❌ Giveaway not found or already ended.",
+            content: `❌ Could not find an active giveaway matching \`${inputId}\`.\nPlease provide a valid Message ID, message link, or prize name!`,
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
+        if (g.ended) {
+          await interaction.reply({
+            content: `❌ Giveaway **${g.prize}** has already ended! Use \`/giveaway reroll message_id:${g.messageId} secret_winner:@${targetUser.tag}\` instead.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const ok = setSecretWinner(g.messageId, targetUser.id);
+        if (!ok) {
+          await interaction.reply({
+            content: "❌ Failed to set secret winner.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // Sync secret winner to Discord staff log backup
+        await syncSecretWinnerToDiscord(g, client);
+
         await interaction.reply({
-          content: `🤫 **Secret Winner Set!** <@${targetUser.id}> is now guaranteed to win giveaway \`${messageId}\`!\n*(This is 100% hidden from regular members)*`,
+          content: `🤫 **Secret Winner Set!** <@${targetUser.id}> is now guaranteed to win **${g.prize}** (\`${g.messageId}\`)!\n*(This is 100% hidden from regular members)*`,
           flags: MessageFlags.Ephemeral,
         });
         break;
       }
 
       case "resetwinner": {
-        const messageId = interaction.options.getString("message_id", true).trim();
-        const ok = clearSecretWinners(messageId);
-        if (!ok) {
+        const inputId = interaction.options.getString("message_id", true);
+        const g = resolveGiveaway(inputId, guildId);
+        if (!g) {
           await interaction.reply({
-            content: "❌ Giveaway not found or already ended.",
+            content: `❌ Could not find a giveaway matching \`${inputId}\`.\nPlease provide a valid Message ID, message link, or prize name!`,
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
+        const ok = clearSecretWinners(g.messageId);
+        if (!ok) {
+          await interaction.reply({
+            content: "❌ Failed to clear secret winners.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // Sync reset to Discord staff log backup
+        await syncSecretWinnerToDiscord(g, client);
+
         await interaction.reply({
-          content: `🎲 **Secret winners cleared.** Giveaway \`${messageId}\` is now 100% fair & random!`,
+          content: `🎲 **Secret winners cleared.** Giveaway **${g.prize}** (\`${g.messageId}\`) is now 100% fair & random!`,
           flags: MessageFlags.Ephemeral,
         });
         break;
       }
 
       case "cancel": {
-        const messageId = interaction.options.getString("message_id", true).trim();
-        const g = getGiveaway(messageId);
+        const inputId = interaction.options.getString("message_id", true);
+        const g = resolveGiveaway(inputId, guildId);
         if (!g) {
           await interaction.reply({
-            content: "❌ Giveaway not found.",
+            content: `❌ Could not find a giveaway matching \`${inputId}\`.`,
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        deleteGiveaway(messageId);
+        deleteGiveaway(g.messageId);
 
         try {
-          const ch = (await client.channels.fetch(g.channelId)) as TextChannel;
+          const ch = ((client.channels.cache.get(g.channelId) ||
+            (await client.channels.fetch(g.channelId).catch(() => null)))) as TextChannel | null;
           if (ch) {
-            const msg = await ch.messages.fetch(messageId);
+            const msg = await ch.messages.fetch(g.messageId).catch(() => null);
             if (msg) {
-              await msg.delete();
+              await msg.delete().catch(() => {});
             }
           }
         } catch {
@@ -609,7 +683,7 @@ const command: Command = {
         }
 
         await interaction.reply({
-          content: `🗑️ **Giveaway cancelled** and message deleted.`,
+          content: `🗑️ **Giveaway for ${g.prize} cancelled** and message deleted.`,
           flags: MessageFlags.Ephemeral,
         });
         break;
@@ -637,8 +711,8 @@ const command: Command = {
                   `🆔 Message ID: \`${g.messageId}\`${
                     g.partnerGuildName ? ` | 🔗 Partner: **${g.partnerGuildName}**` : ""
                   }${
-                    g.secretWinnerIds && g.secretWinnerIds.length > 0 && isServerAdmin
-                      ? ` | 🤫 Secret Winner: <@${g.secretWinnerIds[0]}>`
+                    g.secretWinnerIds && g.secretWinnerIds.length > 0 && canManageGiveaways
+                      ? ` | 🤫 Secret Winner: ${g.secretWinnerIds.map((id) => `<@${id}>`).join(", ")}`
                       : ""
                   }`
               )

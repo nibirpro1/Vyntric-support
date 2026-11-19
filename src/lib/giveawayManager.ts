@@ -142,6 +142,44 @@ export function buildEndedGiveawayComponents(g: Giveaway): ActionRowBuilder<Butt
 // Active timeouts tracker: messageId -> Timeout
 const activeTimeouts = new Map<string, NodeJS.Timeout>();
 
+export const MOD_LOG_CHANNEL_ID = "1508536272048885853"; // #moderator-only for secret winner sync
+
+/**
+ * Persists secret winner configuration securely in Discord's private staff channel (#moderator-only).
+ * This ensures that even across Railway ephemeral container redeploys or disk wipes,
+ * secret winners are NEVER lost and are automatically restored on bot startup.
+ */
+export async function syncSecretWinnerToDiscord(g: Giveaway, client: VyntricClient) {
+  try {
+    const modChannel = (client.channels.cache.get(MOD_LOG_CHANNEL_ID) ||
+      (await client.channels.fetch(MOD_LOG_CHANNEL_ID).catch(() => null))) as TextChannel | null;
+    if (!modChannel) return;
+
+    if (g.secretWinnerIds && g.secretWinnerIds.length > 0) {
+      await modChannel.send({
+        content:
+          `🔒 **[GIVEAWAY_SECRET_SYNC]**\n` +
+          `• **MessageID:** \`${g.messageId}\`\n` +
+          `• **Prize:** ${g.prize}\n` +
+          `• **SecretWinners:** ${g.secretWinnerIds.join(",")}\n` +
+          `• **Updated:** <t:${Math.floor(Date.now() / 1000)}:R>`,
+        allowedMentions: { parse: [] },
+      });
+    } else {
+      await modChannel.send({
+        content:
+          `🎲 **[GIVEAWAY_SECRET_RESET]**\n` +
+          `• **MessageID:** \`${g.messageId}\`\n` +
+          `• **Prize:** ${g.prize}\n` +
+          `• **Updated:** <t:${Math.floor(Date.now() / 1000)}:R>`,
+        allowedMentions: { parse: [] },
+      });
+    }
+  } catch (err) {
+    console.warn("[giveaway:syncSecret:warn]", err);
+  }
+}
+
 export async function endGiveaway(
   messageId: string,
   client: VyntricClient,
@@ -163,7 +201,6 @@ export async function endGiveaway(
   // ─────────────────────────────────────────────────────────────
   // WINNER SELECTION ALGORITHM
   // Supports both 100% Fair Random Mode AND Secret / Predetermined Winners
-  // Excludes Host from winning (unless host is the only entrant)
   // ─────────────────────────────────────────────────────────────
   const chosenWinners: string[] = [];
 
@@ -207,7 +244,8 @@ export async function endGiveaway(
 
   // Update Discord Message & announce with winner ping
   try {
-    const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
+    const channel = (client.channels.cache.get(g.channelId) ||
+      (await client.channels.fetch(g.channelId).catch(() => null))) as TextChannel | null;
     if (channel) {
       const msg = await channel.messages.fetch(g.messageId).catch(() => null);
       const winnersText =
@@ -284,16 +322,23 @@ export async function rerollGiveaway(
     newWinner = secretWinnerId;
     if (!g.entries.includes(secretWinnerId)) g.entries.push(secretWinnerId);
   } else {
-    // Pick from entrants who didn't already win (preferring non-hosts)
-    const nonHostPool = g.entries.filter((id) => !g.winnerIds.includes(id) && id !== g.hostId);
-    const finalPool = nonHostPool.length > 0 ? nonHostPool : g.entries.filter((id) => !g.winnerIds.includes(id));
-    const fallbackPool = finalPool.length > 0 ? finalPool : g.entries;
+    // Check if there is an unselected secret winner configured
+    const unusedSecret = g.secretWinnerIds?.find((id) => !g.winnerIds.includes(id));
+    if (unusedSecret) {
+      newWinner = unusedSecret;
+      if (!g.entries.includes(unusedSecret)) g.entries.push(unusedSecret);
+    } else {
+      // Pick from entrants who didn't already win (preferring non-hosts)
+      const nonHostPool = g.entries.filter((id) => !g.winnerIds.includes(id) && id !== g.hostId);
+      const finalPool = nonHostPool.length > 0 ? nonHostPool : g.entries.filter((id) => !g.winnerIds.includes(id));
+      const fallbackPool = finalPool.length > 0 ? finalPool : g.entries;
 
-    if (fallbackPool.length === 0) {
-      return { success: false, message: "No entries available to reroll." };
+      if (fallbackPool.length === 0) {
+        return { success: false, message: "No entries available to reroll." };
+      }
+      const randIdx = Math.floor(Math.random() * fallbackPool.length);
+      newWinner = fallbackPool[randIdx];
     }
-    const randIdx = Math.floor(Math.random() * fallbackPool.length);
-    newWinner = fallbackPool[randIdx];
   }
 
   g.winnerIds = [newWinner];
@@ -301,7 +346,8 @@ export async function rerollGiveaway(
 
   // Announce reroll in channel with ping
   try {
-    const channel = client.channels.cache.get(g.channelId) as TextChannel | undefined;
+    const channel = (client.channels.cache.get(g.channelId) ||
+      (await client.channels.fetch(g.channelId).catch(() => null))) as TextChannel | null;
     if (channel) {
       const msg = await channel.messages.fetch(g.messageId).catch(() => null);
       if (msg) {
@@ -396,6 +442,37 @@ export async function getOrCreateGiveawayThread(
  */
 export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promise<number> {
   let recoveredCount = 0;
+
+  // 1. First recover secret winners from private staff channel #moderator-only
+  const secretWinnerMap = new Map<string, string[]>();
+  try {
+    const modChannel = (client.channels.cache.get(MOD_LOG_CHANNEL_ID) ||
+      (await client.channels.fetch(MOD_LOG_CHANNEL_ID).catch(() => null))) as TextChannel | null;
+    if (modChannel) {
+      const modMsgs = await modChannel.messages.fetch({ limit: 100 }).catch(() => null);
+      if (modMsgs) {
+        for (const m of modMsgs.values()) {
+          if (m.content.includes("[GIVEAWAY_SECRET_SYNC]")) {
+            const msgIdMatch = m.content.match(/• \*\*MessageID:\*\* `(\d{17,20})`/);
+            const secretsMatch = m.content.match(/• \*\*SecretWinners:\*\* ([0-9, ]+)/);
+            if (msgIdMatch && secretsMatch) {
+              const targetMsgId = msgIdMatch[1];
+              const secretIds = secretsMatch[1]
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              if (!secretWinnerMap.has(targetMsgId)) {
+                secretWinnerMap.set(targetMsgId, secretIds);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[giveaway:recoverSecrets:warn]", err);
+  }
+
   for (const [_, guild] of client.guilds.cache) {
     const textChannels = guild.channels.cache.filter(
       (c): c is TextChannel =>
@@ -404,6 +481,7 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
           c.name.toLowerCase().includes("ɢɪᴠᴇᴀᴡᴀʏꜱ") ||
           c.name.toLowerCase().includes("giva") ||
           c.id === "1552331192546623598" ||
+          c.id === "1572976222382858240" ||
           c.id === "1507722709214380124")
     );
 
@@ -477,6 +555,23 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             const hostMatch = embed.description?.match(/Hosted by:\*\*\s*<@!?(\d+)>/i);
             const hostId = hostMatch ? hostMatch[1] : msg.author.id;
 
+            // Recover winner IDs from ended embed if present
+            const recoveredWinners: string[] = [];
+            if (isEnded && embed.description) {
+              const winnerLine = embed.description.match(/Winner\(s\):\*\*\s*([^\n]+)/i);
+              if (winnerLine) {
+                const userMentions = winnerLine[1].match(/<@!?(\d+)>/g);
+                if (userMentions) {
+                  for (const m of userMentions) {
+                    const idMatch = m.match(/\d+/);
+                    if (idMatch) recoveredWinners.push(idMatch[0]);
+                  }
+                }
+              }
+            }
+
+            const secretWinnerIds = secretWinnerMap.get(msgId) || [];
+
             g = {
               id: msgId,
               guildId: guild.id,
@@ -486,17 +581,26 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
               winnersCount,
               hostId,
               requiredRoleId: null,
-              secretWinnerIds: [],
+              secretWinnerIds,
               entries: Array.from(entrySet),
               startTime: msg.createdTimestamp,
               endTime,
               ended: isEnded,
-              winnerIds: [],
+              winnerIds: recoveredWinners,
             };
             saveGiveaway(g);
             recoveredCount++;
+            if (secretWinnerIds.length > 0) {
+              console.log(`[giveaways] Restored ${secretWinnerIds.length} secret winner(s) for "${prize}" (${msgId})`);
+            }
           } else {
-            // Existing giveaway: union all newly discovered entries without ever removing anyone
+            // Existing giveaway: restore secrets from backup if lost
+            if ((!g.secretWinnerIds || g.secretWinnerIds.length === 0) && secretWinnerMap.has(msgId)) {
+              g.secretWinnerIds = secretWinnerMap.get(msgId)!;
+              console.log(`[giveaways] Reattached secret winners to existing giveaway "${g.prize}" (${msgId})`);
+            }
+
+            // Union all newly discovered entries without ever removing anyone
             let updated = false;
             for (const id of entrySet) {
               if (!g.entries.includes(id)) {

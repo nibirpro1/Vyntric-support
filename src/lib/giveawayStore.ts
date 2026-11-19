@@ -137,6 +137,48 @@ export function getGiveaway(messageId: string): Giveaway | undefined {
   return store[messageId];
 }
 
+/**
+ * Resolves a Giveaway object from flexible user input:
+ * 1. Discord message link: https://discord.com/channels/guild/channel/messageId
+ * 2. Raw messageId snowflake: 1570415276397174814
+ * 3. Prize name match (exact or partial substring, case-insensitive)
+ * 4. Fallback to active giveaway in guild if only 1 active giveaway exists
+ */
+export function resolveGiveaway(input: string, guildId?: string): Giveaway | undefined {
+  if (!input) return undefined;
+  const trimmed = input.trim();
+
+  // 1. Extract snowflake from Discord message URL or standalone snowflake
+  const urlMatch = trimmed.match(/(?:channels\/\d+\/\d+\/|\/|^)(\d{17,20})/);
+  if (urlMatch) {
+    const byId = store[urlMatch[1]];
+    if (byId) return byId;
+  }
+
+  // 2. Direct messageId lookup
+  if (store[trimmed]) return store[trimmed];
+
+  // 3. Search active giveaways in guild (or global if guildId omitted)
+  const active = getActiveGiveaways(guildId);
+  const exact = active.find((g) => g.prize.toLowerCase() === trimmed.toLowerCase());
+  if (exact) return exact;
+
+  const partial = active.find((g) => g.prize.toLowerCase().includes(trimmed.toLowerCase()));
+  if (partial) return partial;
+
+  // 4. If only 1 active giveaway exists in this guild and user typed generic keyword or partial
+  if (active.length === 1 && (trimmed.toLowerCase() === "active" || trimmed.toLowerCase() === "current" || trimmed.toLowerCase() === "latest" || trimmed === "")) {
+    return active[0];
+  }
+
+  // 5. Fallback to any giveaway matching prize (e.g. for ended giveaway reroll)
+  const all = getAllGiveaways(guildId);
+  const anyMatch = all.find((g) => g.prize.toLowerCase().includes(trimmed.toLowerCase()));
+  if (anyMatch) return anyMatch;
+
+  return undefined;
+}
+
 export function saveGiveaway(giveaway: Giveaway): void {
   store[giveaway.messageId] = giveaway;
   persist();
@@ -158,10 +200,12 @@ export function setSecretWinner(messageId: string, userId: string): boolean {
   if (!g.secretWinnerIds.includes(userId)) {
     g.secretWinnerIds.push(userId);
   }
-  // Also ensure they are in entries so it appears 100% natural
-  if (!g.entries.includes(userId)) {
-    g.entries.push(userId);
-  }
+  // DO NOT add to g.entries here!
+  // Keeping entries clean ensures:
+  // 1. Entry count doesn't mysteriously increase by 1 before anyone enters.
+  // 2. Clicking "View Entries" doesn't leak the secret winner to regular members.
+  // 3. When the secret winner clicks "Enter", they get a natural confirmation instead of "already entered".
+  // If the secret winner never clicks Enter, endGiveaway will add them at conclusion time.
   persist();
   return true;
 }

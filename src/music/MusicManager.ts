@@ -32,17 +32,20 @@ let ytdlPromise: Promise<Ytdl> | null = null;
 export function getYtdlClient(): Promise<Ytdl> {
   if (!ytdlPromise) {
     ytdlPromise = (async () => {
+      const cookie = process.env.YOUTUBE_COOKIE || process.env.YT_COOKIE || undefined;
       try {
         const provider = await createPoTokenProvider();
         console.log("[music:ytdl] BotGuard PoTokenProvider initialized successfully.");
         return new Ytdl({
+          cookie,
           getPoToken: provider,
-          clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
+          clients: [Client.Tv, Client.VisionOS, Client.WebEmbedded, Client.Mweb],
         });
       } catch (err: any) {
-        console.warn("[music:ytdl] PoTokenProvider init failed, using VisionOS client directly:", err?.message || err);
+        console.warn("[music:ytdl] PoTokenProvider init failed, using Tv/VisionOS client directly:", err?.message || err);
         return new Ytdl({
-          clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
+          cookie,
+          clients: [Client.Tv, Client.VisionOS, Client.WebEmbedded, Client.Mweb],
         });
       }
     })();
@@ -495,6 +498,13 @@ export class MusicManager {
             (queue.currentTrack.id === `yt_${rawId}` || queue.currentTrack.url.includes(rawId));
 
           if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
+            // Verify candidate is playable before enqueuing to prevent skip loops
+            const canPlay = await ytdl.getInfo(item.url).then(() => true).catch(() => false);
+            if (!canPlay) {
+              console.warn(`[music:autoplay] Skipping restricted recommendation: ${item.title} (${rawId})`);
+              continue;
+            }
+
             const durSec = Math.round(item.lengthSeconds || 0);
             return {
               id: `yt_${rawId}`,
@@ -584,7 +594,11 @@ export class MusicManager {
           (queue.currentTrack.id === candidate.id || queue.currentTrack.url.includes(rawId));
 
         if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
-          return candidate;
+          try {
+            const ytdl = await getYtdlClient();
+            const canPlay = await ytdl.getInfo(candidate.url).then(() => true).catch(() => false);
+            if (canPlay) return candidate;
+          } catch {}
         }
       }
     }
@@ -606,6 +620,7 @@ export class MusicManager {
 
       const searchRes = await ytSearch({ query });
       if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+        const ytdl = await getYtdlClient();
         for (const video of searchRes.videos.slice(0, 10)) {
           const vId = video.videoId;
           const alreadyInHistory =
@@ -619,6 +634,9 @@ export class MusicManager {
             (queue.currentTrack.id === `yt_${vId}` || queue.currentTrack.url.includes(vId));
 
           if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
+            const canPlay = await ytdl.getInfo(video.url).then(() => true).catch(() => false);
+            if (!canPlay) continue;
+
             return {
               id: `yt_${vId}`,
               title: video.title,
@@ -639,6 +657,69 @@ export class MusicManager {
     }
 
     return null;
+  }
+
+  /**
+   * Proactively verifies if a track is playable. If YouTube blocks it due to age restrictions
+   * or bot checks (sign-in required), automatically finds a clean audio/lyric alternative
+   * release of the same song so it streams seamlessly without failing.
+   */
+  private async resolvePlayableTrack(track: Track): Promise<Track> {
+    if (track.platform !== "youtube") return track;
+
+    try {
+      const ytdl = await getYtdlClient();
+      await ytdl.getInfo(track.url);
+      return track;
+    } catch (err: any) {
+      const msg = err?.message || "";
+      const isRestricted =
+        msg.includes("confirm your age") ||
+        msg.includes("not a bot") ||
+        msg.includes("Sign in") ||
+        msg.includes("cookie") ||
+        msg.includes("403") ||
+        msg.includes("429");
+
+      if (isRestricted) {
+        console.warn(`[music:resolve] Track "${track.title}" is restricted (${msg}). Finding clean audio alternative...`);
+        const cleanTitle = track.title
+          .replace(/\(official\s*(music\s*)?video\)/gi, "")
+          .replace(/\[official\s*(music\s*)?video\]/gi, "")
+          .replace(/\(audio\)/gi, "")
+          .replace(/\[audio\]/gi, "")
+          .replace(/\(lyrics?\)/gi, "")
+          .trim();
+
+        const ytdl = await getYtdlClient();
+        const queries = [`${cleanTitle} audio`, `${cleanTitle} lyric`, cleanTitle];
+
+        for (const q of queries) {
+          try {
+            const searchRes = await ytSearch(q);
+            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+              for (const v of searchRes.videos.slice(0, 5)) {
+                if (track.url.includes(v.videoId)) continue;
+                try {
+                  await ytdl.getInfo(v.videoId);
+                  console.log(`[music:resolve] Successfully substituted clean playable version: "${v.title}" (${v.videoId})`);
+                  return {
+                    ...track,
+                    id: `yt_${v.videoId}`,
+                    title: v.title || track.title,
+                    url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
+                    thumbnail: v.thumbnail || track.thumbnail,
+                    durationSeconds: v.duration?.seconds || track.durationSeconds,
+                    durationFormatted: v.duration?.timestamp || track.durationFormatted,
+                  };
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+    return track;
   }
 
   public async playNext(guildId: string): Promise<void> {
@@ -664,7 +745,9 @@ export class MusicManager {
       return;
     }
 
-    const nextTrack = queue.tracks.shift()!;
+    let nextTrack = queue.tracks.shift()!;
+    // Automatically swap age-restricted or bot-blocked videos for verified clean audio releases
+    nextTrack = await this.resolvePlayableTrack(nextTrack);
     queue.currentTrack = nextTrack;
     queue.isPlaying = true;
     queue.playbackStartTime = Date.now();
@@ -734,6 +817,26 @@ export class MusicManager {
             console.error(`[music:ytdlStream:${guildId}] stream error:`, err?.message || err);
             this.killStreamProcesses(queue);
             if (queue.currentTrack) {
+              queue.consecutiveErrors = (queue.consecutiveErrors || 0) + 1;
+              if (queue.consecutiveErrors >= 3) {
+                console.warn(`[music:throttle:${guildId}] Pausing autoplay after 3 consecutive stream errors.`);
+                queue.isPlaying = false;
+                queue.currentTrack = null;
+                queue.textChannel
+                  .send({
+                    embeds: [
+                      new EmbedBuilder()
+                        .setColor(BRAND.colors.warning)
+                        .setTitle("⏸️ Autoplay Paused")
+                        .setDescription(
+                          "Multiple recommended tracks could not be streamed due to YouTube content restrictions. Use `/play` to choose your next song!"
+                        ),
+                    ],
+                  })
+                  .catch(() => {});
+                return;
+              }
+
               queue.textChannel
                 .send({
                   embeds: [
@@ -816,6 +919,7 @@ export class MusicManager {
 
       resource.volume?.setVolumeLogarithmic(queue.volume / 100);
       queue.player.play(resource);
+      queue.consecutiveErrors = 0;
 
       await this.sendControllerMessage(queue);
     } catch (err: any) {

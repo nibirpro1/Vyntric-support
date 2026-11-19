@@ -38,6 +38,7 @@ export interface GuildQueue {
   idleTimer?: NodeJS.Timeout;
   playbackStartTime?: number;
   pausedAt?: number;
+  consecutiveErrors?: number;
   streamProcess?: ChildProcess;
   streamProcesses?: ChildProcess[];
 }

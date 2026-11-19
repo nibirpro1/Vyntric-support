@@ -1,5 +1,4 @@
-import { musicManager } from "../music/MusicManager";
-import { Ytdl } from "@distube/ytdl-core";
+import { musicManager, getYtdlClient } from "../music/MusicManager";
 
 async function testMusic() {
   console.log("=== Testing Music Pipeline & Stream Resolution ===");
@@ -19,8 +18,8 @@ async function testMusic() {
     author: topTrack.author,
   });
 
-  console.log("\nTesting @distube/ytdl-core direct audio download...");
-  const ytdl = new Ytdl();
+  console.log("\nTesting @distube/ytdl-core direct audio download with PoToken...");
+  const ytdl = await getYtdlClient();
   const stream = await ytdl.download(topTrack.url, {
     filter: { hasAudio: true, hasVideo: false },
     quality: "highestaudio",

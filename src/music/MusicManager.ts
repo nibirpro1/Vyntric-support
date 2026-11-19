@@ -23,12 +23,32 @@ import path from "path";
 import fs from "fs";
 import { spawn, execFile } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
-import { Ytdl } from "@distube/ytdl-core";
+import { Ytdl, createPoTokenProvider, Client } from "@distube/ytdl-core";
 const ytSearch = require("yt-search");
 import { GuildQueue, LoopMode, Track } from "./types";
 import { BRAND } from "../lib/brand";
 
-const ytdlClient = new Ytdl();
+let ytdlPromise: Promise<Ytdl> | null = null;
+export function getYtdlClient(): Promise<Ytdl> {
+  if (!ytdlPromise) {
+    ytdlPromise = (async () => {
+      try {
+        const provider = await createPoTokenProvider();
+        console.log("[music:ytdl] BotGuard PoTokenProvider initialized successfully.");
+        return new Ytdl({
+          getPoToken: provider,
+          clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
+        });
+      } catch (err: any) {
+        console.warn("[music:ytdl] PoTokenProvider init failed, using VisionOS client directly:", err?.message || err);
+        return new Ytdl({
+          clients: [Client.VisionOS, Client.Tv, Client.WebEmbedded, Client.Mweb],
+        });
+      }
+    })();
+  }
+  return ytdlPromise;
+}
 
 if (ffmpegStatic) {
   process.env.FFMPEG_PATH = ffmpegStatic;
@@ -455,7 +475,8 @@ export class MusicManager {
   public async getAutoplayRecommendation(queue: GuildQueue, lastTrack: Track): Promise<Track | null> {
     // 1. Primary: Use @distube/ytdl-core getRelated directly from YouTube's recommendation engine!
     try {
-      const related = await ytdlClient.getRelated(lastTrack.url);
+      const ytdl = await getYtdlClient();
+      const related = await ytdl.getRelated(lastTrack.url);
       if (related && related.length > 0) {
         for (const item of related) {
           const rawId = item.id;
@@ -683,10 +704,11 @@ export class MusicManager {
           inlineVolume: true,
         });
       } else {
-        // 1. Primary: Use @distube/ytdl-core v5 for direct YouTube streaming
+        // 1. Primary: Use @distube/ytdl-core v5 with PoToken & VisionOS for direct YouTube streaming
         let streamPiped = false;
         try {
-          const ytdlStream = await ytdlClient.download(nextTrack.url, {
+          const ytdl = await getYtdlClient();
+          const ytdlStream = await ytdl.download(nextTrack.url, {
             filter: { hasAudio: true, hasVideo: false },
             quality: "highestaudio",
           });
@@ -710,6 +732,19 @@ export class MusicManager {
 
           ytdlStream.on("error", (err) => {
             console.error(`[music:ytdlStream:${guildId}] stream error:`, err?.message || err);
+            this.killStreamProcesses(queue);
+            if (queue.currentTrack) {
+              queue.textChannel
+                .send({
+                  embeds: [
+                    new EmbedBuilder()
+                      .setColor(BRAND.colors.warning)
+                      .setDescription(`⚠️ Audio stream interrupted: **${err?.message || "YouTube error"}**. Skipping…`),
+                  ],
+                })
+                .catch(() => {});
+              this.handleTrackEnd(guildId);
+            }
           });
 
           ffmpeg.on("error", (err) => {

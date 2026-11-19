@@ -31,6 +31,16 @@ const rest = new REST().setToken(token);
     console.log(`\nThis codebase wants ${wanted.length} commands:`);
     console.log(`  ${wantedNames.join(" ")}`);
 
+    const globalCmds = (await rest.get(Routes.applicationCommands(clientId))) as APIApplicationCommand[];
+    console.log(`\nDiscord has ${globalCmds.length} registered GLOBALLY:`);
+    console.log(`  ${globalCmds.map((c) => c.name).sort().join(" ") || "(none)"}`);
+    if (globalCmds.length > 0 && guildId) {
+      console.warn(
+        `\n⚠️ WARNING: ${globalCmds.length} commands are registered globally WHILE guild commands are also in use.` +
+        `\nThis causes Discord to show duplicate slash commands in the server! Run 'npm run deploy-commands' to clean up.`
+      );
+    }
+
     const registered = (await rest.get(
       Routes.applicationGuildCommands(clientId, guildId!)
     )) as APIApplicationCommand[];

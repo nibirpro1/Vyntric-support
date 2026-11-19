@@ -14,6 +14,21 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN!);
         body: commands,
       });
       console.log("Deployed to the guild (instant).");
+
+      // Discord displays duplicate entries if commands exist in both guild and global scopes.
+      // Purge any stale global commands to ensure each command appears exactly once.
+      try {
+        const globalCmds = (await rest.get(
+          Routes.applicationCommands(process.env.CLIENT_ID!)
+        )) as any[];
+        if (Array.isArray(globalCmds) && globalCmds.length > 0) {
+          console.log(`Found ${globalCmds.length} stale global commands. Purging to prevent duplicates in Discord...`);
+          await rest.put(Routes.applicationCommands(process.env.CLIENT_ID!), { body: [] });
+          console.log("Stale global commands successfully purged.");
+        }
+      } catch (purgeErr) {
+        console.warn("[WARN] Could not check or purge global commands:", purgeErr);
+      }
     } else {
       await rest.put(Routes.applicationCommands(process.env.CLIENT_ID!), { body: commands });
       console.log("Deployed globally (can take up to 1 hour to appear).");

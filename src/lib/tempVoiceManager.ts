@@ -231,6 +231,12 @@ export const ownerLeaveTimers = new Map<
   { timeout: NodeJS.Timeout; ownerId: string }
 >();
 
+// Per-user creation mutex: prevents concurrent channel creation for the same user
+const activeCreations = new Set<string>();
+
+// Per-user creation cooldown: rate-limits rapid double-clicks (2.5s window)
+const creationCooldowns = new Map<string, number>();
+
 /**
  * Live updates the interactive control panel embed in the VC text chat.
  */
@@ -458,18 +464,59 @@ export async function handleTempVoiceStateUpdate(
   const config = getTempVoiceConfig(guild.id);
   if (!config.enabled) return;
 
+  // Ignore audio state changes (self-mute, self-deaf, speaking, streaming) where channel did not change
+  if (oldState.channelId === newState.channelId) {
+    return;
+  }
+
   // ─────────────────────────────────────────────────────────────
   // 1. LEAVE EVENT & CHANNEL CLEANUP (Runs whenever member leaves a channel)
   // ─────────────────────────────────────────────────────────────
-  if (oldState.channelId && oldState.channelId !== newState.channelId) {
+  if (oldState.channelId) {
     await handleLeaveTempChannel(guild, member, oldState.channelId);
   }
 
   // ─────────────────────────────────────────────────────────────
   // 2. JOIN-TO-CREATE: Member joins the creator channel ("Create vc")
   // ─────────────────────────────────────────────────────────────
-  if (newState.channelId && newState.channelId === config.creatorChannelId) {
+  if (
+    newState.channelId &&
+    newState.channelId === config.creatorChannelId &&
+    oldState.channelId !== config.creatorChannelId
+  ) {
+    const lockKey = `${guild.id}:${member.id}`;
+
+    // A. Check mutex lock: if creation is already in flight for this member, drop duplicate event
+    if (activeCreations.has(lockKey)) {
+      console.warn(
+        `[tempvoice:lock] Blocked concurrent duplicate creation attempt for ${member.user.tag}`
+      );
+      return;
+    }
+
+    // B. Check debounce cooldown: rate limit rapid double-clicking (2500ms window)
+    const now = Date.now();
+    const lastCreated = creationCooldowns.get(lockKey) || 0;
+    if (now - lastCreated < 2500) {
+      console.warn(
+        `[tempvoice:cooldown] Rate limited rapid creation attempt for ${member.user.tag}`
+      );
+      return;
+    }
+
+    // Acquire mutex lock
+    activeCreations.add(lockKey);
+    creationCooldowns.set(lockKey, now);
+
     try {
+      // Re-verify member is still connected in creator channel
+      if (!member.voice.channelId || member.voice.channelId !== config.creatorChannelId) {
+        console.log(
+          `[tempvoice] Member ${member.user.tag} left creator channel before creation began; aborted.`
+        );
+        return;
+      }
+
       // Check existing channels owned by this member
       const existingOwned = getAllTempChannels(guild.id).filter(
         (c) => c.ownerId === member.id
@@ -569,10 +616,7 @@ export async function handleTempVoiceStateUpdate(
         reason: `TempVoice: Join to create by ${member.user.tag}`,
       });
 
-      // Move member into new channel
-      await member.voice.setChannel(newChannel);
-
-      // Save to store
+      // Prepare temp channel record
       const record: TempChannelRecord = {
         channelId: newChannel.id,
         guildId: guild.id,
@@ -592,6 +636,21 @@ export async function handleTempVoiceStateUpdate(
         },
       };
 
+      // IMMEDIATELY save record to store so concurrent lookups see it right away
+      saveTempChannel(record);
+
+      // Move member into new channel with rollback safety
+      try {
+        await member.voice.setChannel(newChannel);
+      } catch (moveErr) {
+        console.warn(
+          `[tempvoice] Failed to move ${member.user.tag} to #${newChannel.name} (user disconnected or moved away). Rolling back channel.`
+        );
+        await newChannel.delete("TempVoice: User left before move completed").catch(() => {});
+        deleteTempChannel(newChannel.id);
+        return;
+      }
+
       // Post the Control Panel directly in the newly created voice channel's chat!
       const panelPayload = buildInterfacePayload(record, newChannel);
       const sentPanel = await newChannel.send(panelPayload).catch((err) => {
@@ -601,14 +660,17 @@ export async function handleTempVoiceStateUpdate(
 
       if (sentPanel) {
         record.interfaceMessageId = sentPanel.id;
+        saveTempChannel(record);
       }
-      saveTempChannel(record);
 
       console.log(
         `[tempvoice] Created temporary channel #${newChannel.name} with live interface for ${member.user.tag}`
       );
     } catch (err) {
       console.error("[tempvoice:j2c:create:error]", err);
+    } finally {
+      // Guaranteed release of mutex lock
+      activeCreations.delete(lockKey);
     }
     return;
   }
@@ -743,6 +805,45 @@ export async function sweepEmptyTempChannels(client: VyntricClient): Promise<num
         }
       } catch (err) {
         console.error(`[tempvoice:sweep:${record.channelId}]`, err);
+      }
+    }
+
+    // In addition, sweep any orphaned or untracked empty voice channels in the JTC category!
+    if (config.categoryId) {
+      try {
+        const category = await guild.channels.fetch(config.categoryId).catch(() => null);
+        if (category && category.type === ChannelType.GuildCategory) {
+          const children = guild.channels.cache.filter(
+            (ch) =>
+              ch.parentId === config.categoryId &&
+              ch.type === ChannelType.GuildVoice &&
+              ch.id !== config.creatorChannelId
+          );
+
+          for (const ch of children.values()) {
+            const vc = ch as VoiceChannel;
+            // Grace period: do not delete channels created in the last 15 seconds (in-flight move)
+            if (vc.createdTimestamp && Date.now() - vc.createdTimestamp < 15_000) {
+              continue;
+            }
+
+            const humanCount = vc.members.filter((m) => !m.user.bot).size;
+            if (humanCount === 0) {
+              const pending = ownerLeaveTimers.get(vc.id);
+              if (pending) {
+                clearTimeout(pending.timeout);
+                ownerLeaveTimers.delete(vc.id);
+              }
+              await vc
+                .delete("TempVoice: Auto-sweep orphaned empty category channel")
+                .catch(() => {});
+              deleteTempChannel(vc.id);
+              totalDeleted++;
+            }
+          }
+        }
+      } catch (catErr) {
+        console.error(`[tempvoice:sweep:category:${config.categoryId}]`, catErr);
       }
     }
   }

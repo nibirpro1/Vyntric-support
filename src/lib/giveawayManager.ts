@@ -196,6 +196,84 @@ export async function endGiveaway(
   if (!g) return { success: false, winners: [], message: "Giveaway not found." };
   if (g.ended) return { success: false, winners: g.winnerIds, message: "Giveaway already ended." };
 
+  // ─────────────────────────────────────────────────────────────
+  // PRE-FLIGHT DISCORD CHECKS
+  // Prevent duplicate announcements or pinging for deleted/already-ended giveaways
+  // ─────────────────────────────────────────────────────────────
+  const channel = (client.channels.cache.get(g.channelId) ||
+    (await client.channels.fetch(g.channelId).catch(() => null))) as TextChannel | null;
+
+  if (channel) {
+    let msg: Message | null = null;
+    let isDeleted = false;
+    try {
+      msg = await channel.messages.fetch(g.messageId);
+    } catch (err: any) {
+      if (err.code === 10008 || err.status === 404) {
+        isDeleted = true;
+      }
+    }
+
+    // 1. If original message was deleted, mark as ended without spamming any announcement
+    if (isDeleted) {
+      console.warn(
+        `[giveaways:end] Original message ${g.messageId} was deleted in #${channel.name}. Marking giveaway as ended without duplicate ping.`
+      );
+      g.ended = true;
+      saveGiveaway(g);
+      return { success: false, winners: [], message: "Original giveaway message was deleted." };
+    }
+
+    // 2. If message embed already shows it ended, sync and abort without pinging
+    if (msg && msg.embeds.length > 0) {
+      const embed = msg.embeds[0];
+      const alreadyEnded = Boolean(
+        embed.author?.name?.toLowerCase().includes("ended") ||
+        embed.title?.toLowerCase().includes("ended") ||
+        embed.footer?.text?.toLowerCase().includes("ended") ||
+        embed.description?.includes("Winner(s):")
+      );
+      if (alreadyEnded) {
+        console.log(
+          `[giveaways:end] Giveaway "${g.prize}" (${g.messageId}) is already marked ended on Discord. Syncing state without ping.`
+        );
+        g.ended = true;
+        if ((!g.winnerIds || g.winnerIds.length === 0) && embed.description) {
+          const winnerLine = embed.description.match(/Winner\(s\):\*\*\s*([^\n]+)/i);
+          if (winnerLine) {
+            const userMentions = winnerLine[1].match(/<@!?(\d+)>/g);
+            if (userMentions) {
+              g.winnerIds = userMentions.map((m) => m.replace(/<@!?/, "").replace(">", "")).filter(Boolean);
+            }
+          }
+        }
+        saveGiveaway(g);
+        return { success: true, winners: g.winnerIds, message: "Giveaway already ended." };
+      }
+    }
+
+    // 3. If the channel already has a winner announcement for this prize, abort without duplicate ping
+    if (!forcedWinnerId) {
+      const recentMsgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+      if (recentMsgs) {
+        const existingAnnouncement = recentMsgs.find(
+          (m) =>
+            m.author.id === client.user?.id &&
+            m.content.includes("🎉 Congratulations") &&
+            m.content.includes(`**${g.prize}**`)
+        );
+        if (existingAnnouncement) {
+          console.log(
+            `[giveaways:end] Winner announcement already exists for giveaway "${g.prize}" in #${channel.name}. Marking ended without duplicate ping.`
+          );
+          g.ended = true;
+          saveGiveaway(g);
+          return { success: true, winners: g.winnerIds, message: "Winner already announced." };
+        }
+      }
+    }
+  }
+
   g.ended = true;
 
   // ─────────────────────────────────────────────────────────────
@@ -503,8 +581,10 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
           if (!isGiveaway) continue;
 
           const isEnded = Boolean(
-            embed.author?.name?.includes("Ended") ||
-            embed.footer?.text?.toLowerCase().includes("ended")
+            embed.author?.name?.toLowerCase().includes("ended") ||
+            embed.title?.toLowerCase().includes("ended") ||
+            embed.footer?.text?.toLowerCase().includes("ended") ||
+            embed.description?.includes("Winner(s):")
           );
 
           let g: Giveaway | undefined = getGiveaway(msgId);
@@ -542,6 +622,21 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
             }
           } catch {}
 
+          // Recover winner IDs from ended embed if present
+          const recoveredWinners: string[] = [];
+          if (isEnded && embed.description) {
+            const winnerLine = embed.description.match(/Winner\(s\):\*\*\s*([^\n]+)/i);
+            if (winnerLine) {
+              const userMentions = winnerLine[1].match(/<@!?(\d+)>/g);
+              if (userMentions) {
+                for (const m of userMentions) {
+                  const idMatch = m.match(/\d+/);
+                  if (idMatch) recoveredWinners.push(idMatch[0]);
+                }
+              }
+            }
+          }
+
           if (!g) {
             const prize = embed.title?.replace(/🎁/g, "").trim() || "Giveaway Prize";
             const winnersMatch = embed.description?.match(/Winners:\*\*\s*`?(\d+)`?/i);
@@ -554,21 +649,6 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
 
             const hostMatch = embed.description?.match(/Hosted by:\*\*\s*<@!?(\d+)>/i);
             const hostId = hostMatch ? hostMatch[1] : msg.author.id;
-
-            // Recover winner IDs from ended embed if present
-            const recoveredWinners: string[] = [];
-            if (isEnded && embed.description) {
-              const winnerLine = embed.description.match(/Winner\(s\):\*\*\s*([^\n]+)/i);
-              if (winnerLine) {
-                const userMentions = winnerLine[1].match(/<@!?(\d+)>/g);
-                if (userMentions) {
-                  for (const m of userMentions) {
-                    const idMatch = m.match(/\d+/);
-                    if (idMatch) recoveredWinners.push(idMatch[0]);
-                  }
-                }
-              }
-            }
 
             const secretWinnerIds = secretWinnerMap.get(msgId) || [];
 
@@ -594,6 +674,16 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
               console.log(`[giveaways] Restored ${secretWinnerIds.length} secret winner(s) for "${prize}" (${msgId})`);
             }
           } else {
+            // Existing giveaway: sync ended status from Discord embed if discord says ended
+            if (isEnded && !g.ended) {
+              g.ended = true;
+              if (recoveredWinners.length > 0 && (!g.winnerIds || g.winnerIds.length === 0)) {
+                g.winnerIds = recoveredWinners;
+              }
+              console.log(`[giveaways] Synced ended status for giveaway "${g.prize}" (${msgId}) from Discord embed.`);
+              saveGiveaway(g);
+            }
+
             // Existing giveaway: restore secrets from backup if lost
             if ((!g.secretWinnerIds || g.secretWinnerIds.length === 0) && secretWinnerMap.has(msgId)) {
               g.secretWinnerIds = secretWinnerMap.get(msgId)!;
@@ -635,6 +725,60 @@ export async function recoverGiveawaysFromDiscord(client: VyntricClient): Promis
       }
     }
   }
+
+  // 4. Verify all tracked giveaways in memory/store against Discord
+  // If an active giveaway's message is deleted or already ended on Discord, mark as ended
+  const allActive = getActiveGiveaways();
+  for (const activeG of allActive) {
+    if (activeG.endTime <= Date.now()) {
+      try {
+        const ch = (client.channels.cache.get(activeG.channelId) ||
+          (await client.channels.fetch(activeG.channelId).catch(() => null))) as TextChannel | null;
+        if (!ch) {
+          console.warn(`[giveaways:cleanup] Channel ${activeG.channelId} not found for giveaway ${activeG.messageId}. Marking ended.`);
+          activeG.ended = true;
+          saveGiveaway(activeG);
+          continue;
+        }
+
+        let originalMsg: Message | null = null;
+        let msgDeleted = false;
+        try {
+          originalMsg = await ch.messages.fetch(activeG.messageId);
+        } catch (err: any) {
+          if (err.code === 10008 || err.status === 404) {
+            msgDeleted = true;
+          }
+        }
+
+        if (msgDeleted) {
+          console.warn(`[giveaways:cleanup] Message ${activeG.messageId} was deleted for giveaway "${activeG.prize}". Marking ended without announcement.`);
+          activeG.ended = true;
+          saveGiveaway(activeG);
+          continue;
+        }
+
+        if (originalMsg && originalMsg.embeds.length > 0) {
+          const emb = originalMsg.embeds[0];
+          const embEnded = Boolean(
+            emb.author?.name?.toLowerCase().includes("ended") ||
+            emb.title?.toLowerCase().includes("ended") ||
+            emb.footer?.text?.toLowerCase().includes("ended") ||
+            emb.description?.includes("Winner(s):")
+          );
+          if (embEnded) {
+            console.log(`[giveaways:cleanup] Giveaway "${activeG.prize}" (${activeG.messageId}) is ended on Discord. Marking ended.`);
+            activeG.ended = true;
+            saveGiveaway(activeG);
+            continue;
+          }
+        }
+      } catch (err) {
+        console.warn("[giveaways:cleanup:err]", err);
+      }
+    }
+  }
+
   return recoveredCount;
 }
 

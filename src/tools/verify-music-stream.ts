@@ -18,20 +18,36 @@ async function testMusic() {
     author: topTrack.author,
   });
 
-  console.log("\nTesting @distube/ytdl-core direct audio download with PoToken...");
-  const ytdl = await getYtdlClient();
-  const stream = await ytdl.download(topTrack.url, {
-    filter: { hasAudio: true, hasVideo: false },
-    quality: "highestaudio",
-  });
+  console.log("\nTesting getDirectAudioUrl via yt-dlp...");
+  const { getDirectAudioUrl } = require("../music/MusicManager");
+  const directUrl = await getDirectAudioUrl(topTrack.url);
+  if (!directUrl) throw new Error("Failed to extract direct audio URL via yt-dlp!");
+  console.log("✅ Direct audio URL extracted successfully:", directUrl.slice(0, 80) + "...");
+
+  console.log("\nTesting FFmpeg stream from direct audio URL...");
+  const { spawn } = require("child_process");
+  const ffmpegStatic = require("ffmpeg-static");
+  const ffmpeg = spawn(ffmpegStatic, [
+    "-reconnect", "1",
+    "-reconnect_streamed", "1",
+    "-reconnect_delay_max", "5",
+    "-analyzeduration", "0",
+    "-loglevel", "0",
+    "-i", directUrl,
+    "-f", "s16le",
+    "-ar", "48000",
+    "-ac", "2",
+    "pipe:1"
+  ], { stdio: ["ignore", "pipe", "ignore"] });
 
   let bytesReceived = 0;
-  stream.on("data", (chunk: Buffer) => {
+  ffmpeg.stdout.on("data", (chunk: Buffer) => {
     bytesReceived += chunk.length;
   });
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
-  console.log(`Stream data received in 3s: ${(bytesReceived / 1024).toFixed(1)} KB`);
+  ffmpeg.kill();
+  console.log(`Stream PCM data received in 3s: ${(bytesReceived / 1024).toFixed(1)} KB`);
 
   if (bytesReceived < 50_000) {
     throw new Error(`Insufficient stream data received: only ${bytesReceived} bytes!`);

@@ -9,14 +9,23 @@ import { Command } from "../../structures/Command";
 import { musicManager } from "../../music/MusicManager";
 import { BRAND } from "../../lib/brand";
 
+const platformIcons: Record<string, string> = {
+  spotify: "🟢 Spotify",
+  apple: "🍎 Apple Music",
+  soundcloud: "🟠 SoundCloud",
+  deezer: "🟣 Deezer",
+  youtube: "🔴 YouTube",
+  url: "🌐 Web Stream",
+};
+
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("play")
-    .setDescription("Play a song or playlist in your voice channel (YouTube, SoundCloud, or direct URL)")
+    .setDescription("Play any song, playlist, or link (YouTube, Spotify, Apple Music, SoundCloud, etc.)")
     .addStringOption((option) =>
       option
         .setName("query")
-        .setDescription("Song title, YouTube URL, or direct stream link")
+        .setDescription("Song name, or link from YouTube, Spotify, Apple Music, SoundCloud, or web stream")
         .setRequired(true)
     ),
   async execute(interaction: ChatInputCommandInteraction) {
@@ -62,7 +71,7 @@ const command: Command = {
             new EmbedBuilder()
               .setColor(BRAND.colors.warning)
               .setDescription(
-                `❌ No playable tracks found for: **${query}**\n*(If this was a link, please check that the video is not deleted, private, or age-restricted)*`
+                `❌ No playable tracks found for: **${query}**\n*(If this was a link, please check that it is not private or restricted)*`
               ),
           ],
         });
@@ -73,12 +82,15 @@ const command: Command = {
         const track = tracks[0];
         queue.tracks.push(track);
 
+        const platformLabel = platformIcons[track.platform] || "🎵 Music";
+        const displayUrl = track.originalUrl || track.url;
+
         if (!queue.isPlaying && !queue.currentTrack) {
           await interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setColor(BRAND.colors.success)
-                .setDescription(`🎶 Starting playback: **[${track.title}](${track.url})**`),
+                .setDescription(`🎶 Starting playback (${platformLabel}): **[${track.title}](${displayUrl})**`),
             ],
           });
           await musicManager.playNext(interaction.guild.id);
@@ -89,30 +101,33 @@ const command: Command = {
                 .setColor(BRAND.colors.primary)
                 .setThumbnail(track.thumbnail || null)
                 .setTitle("➕ Added to Queue")
-                .setDescription(`**[${track.title}](${track.url})**`)
+                .setDescription(`**[${track.title}](${displayUrl})**`)
                 .addFields(
                   { name: "👤 Artist", value: track.author, inline: true },
                   { name: "⏱️ Duration", value: track.durationFormatted, inline: true },
-                  { name: "📍 Position in Queue", value: `#${queue.tracks.length}`, inline: true }
+                  { name: "📍 Position", value: `#${queue.tracks.length}`, inline: true },
+                  { name: "📻 Source", value: platformLabel, inline: true }
                 )
                 .setFooter({ text: `Requested by ${interaction.user.tag}` }),
             ],
           });
         }
       } else {
-        // Multiple tracks extracted (e.g. multi-link pasted)
+        // Multiple tracks extracted (e.g. playlist or album)
         for (const t of tracks) {
           queue.tracks.push(t);
         }
 
+        const first = tracks[0];
+        const platformLabel = platformIcons[first.platform] || "🎵 Music";
+
         if (!queue.isPlaying && !queue.currentTrack) {
-          const first = queue.tracks[0];
           await interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setColor(BRAND.colors.success)
-                .setTitle(`🎶 Added ${tracks.length} tracks to queue`)
-                .setDescription(`Starting playback: **[${first.title}](${first.url})**`),
+                .setTitle(`🎶 Added ${tracks.length} tracks to queue (${platformLabel})`)
+                .setDescription(`Starting playback: **[${first.title}](${first.originalUrl || first.url})**`),
             ],
           });
           await musicManager.playNext(interaction.guild.id);
@@ -121,7 +136,7 @@ const command: Command = {
             embeds: [
               new EmbedBuilder()
                 .setColor(BRAND.colors.primary)
-                .setTitle(`➕ Added ${tracks.length} tracks to queue`)
+                .setTitle(`➕ Added ${tracks.length} tracks to queue (${platformLabel})`)
                 .setDescription(`All tracks queued successfully. Total in queue: **${queue.tracks.length}**`),
             ],
           });

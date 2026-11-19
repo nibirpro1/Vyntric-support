@@ -7,6 +7,8 @@ import { Message, TextBasedChannel } from "discord.js";
 
 export type LoopMode = "off" | "track" | "queue";
 
+export type TrackPlatform = "soundcloud" | "youtube" | "spotify" | "apple" | "deezer" | "url";
+
 export interface Track {
   id: string;
   title: string;
@@ -17,7 +19,8 @@ export interface Track {
   author: string;
   requesterId: string;
   requesterTag: string;
-  platform: "soundcloud" | "youtube" | "spotify" | "url";
+  platform: TrackPlatform;
+  originalUrl?: string;
 }
 
 export interface GuildQueue {

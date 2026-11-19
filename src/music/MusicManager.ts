@@ -27,6 +27,16 @@ import { Ytdl, createPoTokenProvider, Client } from "@distube/ytdl-core";
 const ytSearch = require("yt-search");
 import { GuildQueue, LoopMode, Track } from "./types";
 import { BRAND } from "../lib/brand";
+import {
+  isDirectMediaUrl,
+  resolveRedirect,
+  searchYouTubeTrack,
+  resolveSpotify,
+  resolveAppleMusic,
+  resolveSoundCloud,
+  resolveDeezer,
+  resolveGenericMediaUrl,
+} from "./linkResolver";
 
 let ytdlPromise: Promise<Ytdl> | null = null;
 export function getYtdlClient(): Promise<Ytdl> {
@@ -364,8 +374,9 @@ export class MusicManager {
   }
 
   /**
-   * Intelligently resolves user input (YouTube URL, video ID, multiple URLs,
-   * playlists, direct audio file stream, or keyword search) into playable Track objects.
+   * Intelligently resolves user input (YouTube, Spotify, Apple Music, SoundCloud,
+   * Deezer, Bandcamp, Twitch, Vimeo, TikTok, direct audio streams, or keywords)
+   * into playable Track objects.
    */
   public async search(
     query: string,
@@ -375,12 +386,12 @@ export class MusicManager {
     const trimmed = query.trim();
     const tracks: Track[] = [];
 
-    // 1. Direct audio file link (.mp3, .wav, .ogg, .aac, .m4a)
-    if (/^https?:\/\/.*\.(mp3|wav|ogg|aac|m4a)(\?.*)?$/i.test(trimmed)) {
+    // 1. Direct audio file link (.mp3, .wav, .ogg, .aac, .m4a, .flac, .opus, .webm, .mp4, .m3u8, .pls, .m3u)
+    if (isDirectMediaUrl(trimmed)) {
       const filename = trimmed.split("/").pop()?.split("?")[0] || "Direct Audio Stream";
       tracks.push({
         id: `url_${Date.now()}`,
-        title: filename,
+        title: decodeURIComponent(filename),
         url: trimmed,
         durationSeconds: 0,
         durationFormatted: "Live Stream",
@@ -389,30 +400,81 @@ export class MusicManager {
         requesterId,
         requesterTag,
         platform: "url",
+        originalUrl: trimmed,
       });
       return tracks;
     }
 
-    // 2. YouTube Playlist link
-    if (/[?&]list=([a-zA-Z0-9_-]+)/i.test(trimmed) && /^https?:\/\//i.test(trimmed)) {
-      const playlistTracks = await this.getPlaylistTracks(
-        trimmed,
-        requesterId,
-        requesterTag
-      );
-      if (playlistTracks.length > 0) {
-        return playlistTracks;
+    // Check for multiple URLs in one input
+    const urlMatches = trimmed.match(/https?:\/\/[^\s]+/gi);
+    if (urlMatches && urlMatches.length > 1) {
+      for (const singleUrl of urlMatches) {
+        try {
+          const singleTracks = await this.search(singleUrl, requesterId, requesterTag);
+          if (singleTracks && singleTracks.length > 0) {
+            tracks.push(...singleTracks);
+          }
+        } catch {}
+      }
+      if (tracks.length > 0) {
+        return tracks;
       }
     }
 
-    // 3. Extract any YouTube links or 11-char video IDs in the input (handles multiple URLs!)
-    const ytRegex =
-      /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi;
-    const matches = [...trimmed.matchAll(ytRegex)];
+    // 2. URL based processing (YouTube, Spotify, Apple Music, SoundCloud, Deezer, or other web links)
+    if (/^https?:\/\//i.test(trimmed)) {
+      const resolvedUrl = await resolveRedirect(trimmed);
 
-    if (matches.length > 0) {
-      for (const m of matches) {
-        const videoId = m[1];
+      // YouTube Playlist link
+      if (/[?&]list=([a-zA-Z0-9_-]+)/i.test(resolvedUrl)) {
+        const playlistTracks = await this.getPlaylistTracks(
+          resolvedUrl,
+          requesterId,
+          requesterTag
+        );
+        if (playlistTracks.length > 0) {
+          return playlistTracks;
+        }
+      }
+
+      // Spotify (track, album, playlist)
+      if (/open\.spotify\.com\//i.test(resolvedUrl)) {
+        const spTracks = await resolveSpotify(resolvedUrl, requesterId, requesterTag);
+        if (spTracks.length > 0) {
+          return spTracks;
+        }
+      }
+
+      // Apple Music (song, album, playlist)
+      if (/music\.apple\.com\//i.test(resolvedUrl)) {
+        const amTracks = await resolveAppleMusic(resolvedUrl, requesterId, requesterTag);
+        if (amTracks.length > 0) {
+          return amTracks;
+        }
+      }
+
+      // SoundCloud
+      if (/soundcloud\.com\//i.test(resolvedUrl)) {
+        const scTracks = await resolveSoundCloud(resolvedUrl, requesterId, requesterTag);
+        if (scTracks.length > 0) {
+          return scTracks;
+        }
+      }
+
+      // Deezer
+      if (/deezer\.com\//i.test(resolvedUrl)) {
+        const dzTracks = await resolveDeezer(resolvedUrl, requesterId, requesterTag);
+        if (dzTracks.length > 0) {
+          return dzTracks;
+        }
+      }
+
+      // YouTube Video or Shorts link
+      const ytRegex =
+        /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
+      const ytMatch = resolvedUrl.match(ytRegex);
+      if (ytMatch) {
+        const videoId = ytMatch[1];
         try {
           const info = await ytSearch({ videoId });
           if (info && info.title) {
@@ -421,20 +483,19 @@ export class MusicManager {
               title: info.title,
               url: info.url || `https://www.youtube.com/watch?v=${videoId}`,
               durationSeconds: info.duration?.seconds || 0,
-              durationFormatted: info.duration?.timestamp || formatSeconds(info.duration?.seconds || 0),
+              durationFormatted:
+                info.duration?.timestamp || formatSeconds(info.duration?.seconds || 0),
               thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
               author: info.author?.name || "YouTube Creator",
               requesterId,
               requesterTag,
               platform: "youtube",
+              originalUrl: resolvedUrl,
             });
-            continue;
+            return tracks;
           }
-        } catch {
-          // If ytSearch fails, try yt-dlp metadata
-        }
+        } catch {}
 
-        // Fallback: yt-dlp metadata lookup
         const meta = await getYtDlpMetadata(`https://www.youtube.com/watch?v=${videoId}`);
         if (meta && meta.title) {
           const dur = Math.round(meta.duration || 0);
@@ -449,37 +510,20 @@ export class MusicManager {
             requesterId,
             requesterTag,
             platform: "youtube",
+            originalUrl: resolvedUrl,
           });
+          return tracks;
         }
       }
 
-      if (tracks.length > 0) {
-        return this.resolveTrackList(tracks);
+      // Other generic web URLs (Bandcamp, Vimeo, Twitch, TikTok, etc.)
+      const generic = await resolveGenericMediaUrl(resolvedUrl, requesterId, requesterTag);
+      if (generic.length > 0) {
+        return generic;
       }
     }
 
-    // 4. Other generic web URL (SoundCloud, Vimeo, direct media, etc.)
-    if (/^https?:\/\//i.test(trimmed)) {
-      const meta = await getYtDlpMetadata(trimmed);
-      if (meta && meta.title) {
-        const dur = Math.round(meta.duration || 0);
-        tracks.push({
-          id: `web_${Date.now()}`,
-          title: meta.title,
-          url: meta.webpage_url || trimmed,
-          durationSeconds: dur,
-          durationFormatted: dur > 0 ? formatSeconds(dur) : "Live Stream",
-          thumbnail: meta.thumbnail || "https://cdn.discordapp.com/embed/avatars/0.png",
-          author: meta.uploader || meta.channel || "Web Artist",
-          requesterId,
-          requesterTag,
-          platform: "url",
-        });
-        return tracks;
-      }
-    }
-
-    // 5. Keyword Search on YouTube (try yt-search first, fallback to yt-dlp)
+    // 3. Keyword Search on YouTube (try yt-search first, fallback to yt-dlp)
     try {
       const searchRes = await ytSearch(trimmed);
       if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
@@ -752,6 +796,25 @@ export class MusicManager {
    * release of the same song so it streams seamlessly without failing.
    */
   public async resolvePlayableTrack(track: Track): Promise<Track> {
+    if (track.url.startsWith("ytsearch:")) {
+      const q = track.url.replace("ytsearch:", "").trim();
+      const ytMatch = await searchYouTubeTrack(q);
+      if (ytMatch) {
+        return {
+          ...track,
+          id: ytMatch.id,
+          url: ytMatch.url,
+          durationSeconds: track.durationSeconds || ytMatch.duration,
+          durationFormatted:
+            track.durationSeconds > 0
+              ? formatSeconds(track.durationSeconds)
+              : ytMatch.duration > 0
+              ? formatSeconds(ytMatch.duration)
+              : "Live Stream",
+          thumbnail: track.thumbnail || ytMatch.thumbnail,
+        };
+      }
+    }
     return track;
   }
 
@@ -789,7 +852,7 @@ export class MusicManager {
       let resource: any;
       const ffmpegBin = getFfmpegPath();
 
-      if (nextTrack.platform === "url" && /^https?:\/\/.*\.(mp3|wav|ogg|aac|m4a)(\?.*)?$/i.test(nextTrack.url)) {
+      if (nextTrack.platform === "url" && isDirectMediaUrl(nextTrack.url)) {
         // Direct audio stream URL - pipe through ffmpeg to guarantee 48kHz s16le PCM
         const ffmpeg = spawn(
           ffmpegBin,
@@ -1213,13 +1276,25 @@ export class MusicManager {
         ? "🔁 Queue"
         : "Off";
 
+    const platformBadges: Record<string, string> = {
+      spotify: "🟢 Spotify",
+      apple: "🍎 Apple Music",
+      soundcloud: "🟠 SoundCloud",
+      deezer: "🟣 Deezer",
+      youtube: "🔴 YouTube",
+      url: "🌐 Web Stream",
+    };
+    const platformLabel = platformBadges[track.platform] || "🎵 Music";
+
     const embed = new EmbedBuilder()
       .setColor(BRAND.colors.primary)
       .setAuthor({
-        name: queue.isPlaying ? "🎵 Now Playing • Vyntric Music" : "⏸️ Paused • Vyntric Music",
+        name: queue.isPlaying
+          ? `🎵 Now Playing (${platformLabel}) • Vyntric Music`
+          : `⏸️ Paused (${platformLabel}) • Vyntric Music`,
       })
       .setTitle(track.title.slice(0, 256))
-      .setURL(track.url)
+      .setURL(track.originalUrl || track.url)
       .setDescription(
         [
           `👤 **Artist / Channel:** ${track.author}`,

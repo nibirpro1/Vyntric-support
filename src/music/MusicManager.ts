@@ -23,12 +23,26 @@ import path from "path";
 import fs from "fs";
 import { spawn, execFile } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
+import { Ytdl } from "@distube/ytdl-core";
 const ytSearch = require("yt-search");
 import { GuildQueue, LoopMode, Track } from "./types";
 import { BRAND } from "../lib/brand";
 
+const ytdlClient = new Ytdl();
+
 if (ffmpegStatic) {
   process.env.FFMPEG_PATH = ffmpegStatic;
+}
+
+function getFfmpegPath(): string {
+  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+    try {
+      fs.accessSync(ffmpegStatic, fs.constants.X_OK);
+      return ffmpegStatic;
+    } catch {}
+    return ffmpegStatic;
+  }
+  return "ffmpeg";
 }
 
 const LOCAL_YTDLP = path.resolve(process.cwd(), "bin", "yt-dlp.exe");
@@ -439,7 +453,48 @@ export class MusicManager {
   }
 
   public async getAutoplayRecommendation(queue: GuildQueue, lastTrack: Track): Promise<Track | null> {
-    // 1. Primary: Extract YouTube video ID & use YouTube Mix (list=RD{videoId})
+    // 1. Primary: Use @distube/ytdl-core getRelated directly from YouTube's recommendation engine!
+    try {
+      const related = await ytdlClient.getRelated(lastTrack.url);
+      if (related && related.length > 0) {
+        for (const item of related) {
+          const rawId = item.id;
+          if (!rawId || item.title.includes("[Private video]") || item.title.includes("[Deleted video]")) continue;
+
+          const alreadyInHistory =
+            queue.history.includes(`yt_${rawId}`) ||
+            queue.history.includes(item.url) ||
+            queue.history.includes(rawId) ||
+            queue.history.some((h) => h.includes(rawId));
+          const alreadyInQueue = queue.tracks.some(
+            (t) => t.id === `yt_${rawId}` || t.url === item.url || t.url.includes(rawId)
+          );
+          const isCurrent =
+            queue.currentTrack &&
+            (queue.currentTrack.id === `yt_${rawId}` || queue.currentTrack.url.includes(rawId));
+
+          if (!alreadyInHistory && !alreadyInQueue && !isCurrent) {
+            const durSec = Math.round(item.lengthSeconds || 0);
+            return {
+              id: `yt_${rawId}`,
+              title: item.title,
+              url: item.url,
+              durationSeconds: durSec,
+              durationFormatted: durSec > 0 ? formatSeconds(durSec) : "Unknown",
+              thumbnail: item.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${rawId}/hqdefault.jpg`,
+              author: typeof item.author === "string" ? item.author : item.author?.name || "YouTube Artist",
+              requesterId: "autoplay",
+              requesterTag: "Vyntric Radio",
+              platform: "youtube",
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[music:autoplay:getRelated:fallback]", err?.message || err);
+    }
+
+    // 2. Secondary: Extract YouTube video ID & use YouTube Mix (list=RD{videoId})
     const ytMatch = lastTrack.url.match(/(?:v=|youtu\.be\/|embed\/|\/v\/|\/shorts\/)([0-9A-Za-z_-]{11})/);
     const videoId = ytMatch ? ytMatch[1] : (lastTrack.id.startsWith("yt_") ? lastTrack.id.replace("yt_", "") : null);
 
@@ -596,7 +651,7 @@ export class MusicManager {
 
     try {
       let resource: any;
-      const ffmpegBin = ffmpegStatic || "ffmpeg";
+      const ffmpegBin = getFfmpegPath();
 
       if (nextTrack.platform === "url" && /^https?:\/\/.*\.(mp3|wav|ogg|aac|m4a)(\?.*)?$/i.test(nextTrack.url)) {
         // Direct audio stream URL - pipe through ffmpeg to guarantee 48kHz s16le PCM
@@ -628,49 +683,100 @@ export class MusicManager {
           inlineVolume: true,
         });
       } else {
-        // Spawn yt-dlp piped through ffmpeg to s16le 48kHz PCM for zero lag & 100% codec compatibility
-        const ytdlp = spawn(
-          YTDLP_BIN,
-          [
-            "-f", "ba/b",
-            "--no-playlist",
-            "--no-warnings",
-            "-q",
-            "-o", "-",
-            nextTrack.url,
-          ],
-          { stdio: ["ignore", "pipe", "pipe"] }
-        );
+        // 1. Primary: Use @distube/ytdl-core v5 for direct YouTube streaming
+        let streamPiped = false;
+        try {
+          const ytdlStream = await ytdlClient.download(nextTrack.url, {
+            filter: { hasAudio: true, hasVideo: false },
+            quality: "highestaudio",
+          });
 
-        const ffmpeg = spawn(
-          ffmpegBin,
-          [
-            "-analyzeduration", "0",
-            "-loglevel", "0",
-            "-i", "pipe:0",
-            "-f", "s16le",
-            "-ar", "48000",
-            "-ac", "2",
-            "pipe:1",
-          ],
-          { stdio: ["pipe", "pipe", "ignore"] }
-        );
+          const ffmpeg = spawn(
+            ffmpegBin,
+            [
+              "-analyzeduration", "0",
+              "-loglevel", "0",
+              "-i", "pipe:0",
+              "-f", "s16le",
+              "-ar", "48000",
+              "-ac", "2",
+              "pipe:1",
+            ],
+            { stdio: ["pipe", "pipe", "ignore"] }
+          );
 
-        ytdlp.stdout.pipe(ffmpeg.stdin);
-        queue.streamProcesses = [ytdlp, ffmpeg];
+          ytdlStream.pipe(ffmpeg.stdin);
+          queue.streamProcesses = [ffmpeg];
 
-        ytdlp.on("error", (err) => {
-          console.error(`[music:ytdlp:${guildId}] process error:`, err);
-        });
+          ytdlStream.on("error", (err) => {
+            console.error(`[music:ytdlStream:${guildId}] stream error:`, err?.message || err);
+          });
 
-        ffmpeg.on("error", (err) => {
-          console.error(`[music:ffmpeg:${guildId}] process error:`, err);
-        });
+          ffmpeg.on("error", (err) => {
+            console.error(`[music:ffmpeg:${guildId}] process error:`, err);
+          });
 
-        resource = createAudioResource(ffmpeg.stdout, {
-          inputType: StreamType.Raw,
-          inlineVolume: true,
-        });
+          resource = createAudioResource(ffmpeg.stdout, {
+            inputType: StreamType.Raw,
+            inlineVolume: true,
+          });
+          streamPiped = true;
+          console.log(`[music:${guildId}] Streaming with @distube/ytdl-core: ${nextTrack.title}`);
+        } catch (ytdlErr: any) {
+          console.warn(`[music:ytdlCore:${guildId}] failed (${ytdlErr?.message || ytdlErr}), falling back to yt-dlp...`);
+        }
+
+        // 2. Fallback: yt-dlp with android client
+        if (!streamPiped) {
+          const ytdlp = spawn(
+            YTDLP_BIN,
+            [
+              "-f", "ba/b",
+              "--no-playlist",
+              "--no-warnings",
+              "--extractor-args", "youtube:player_client=android,web",
+              "-q",
+              "-o", "-",
+              nextTrack.url,
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] }
+          );
+
+          const ffmpeg = spawn(
+            ffmpegBin,
+            [
+              "-analyzeduration", "0",
+              "-loglevel", "0",
+              "-i", "pipe:0",
+              "-f", "s16le",
+              "-ar", "48000",
+              "-ac", "2",
+              "pipe:1",
+            ],
+            { stdio: ["pipe", "pipe", "ignore"] }
+          );
+
+          ytdlp.stdout.pipe(ffmpeg.stdin);
+          queue.streamProcesses = [ytdlp, ffmpeg];
+
+          ytdlp.stderr.on("data", (d) => {
+            console.error(`[music:ytdlp:stderr:${guildId}]`, d.toString().trim());
+          });
+
+          ytdlp.on("error", (err) => {
+            console.error(`[music:ytdlp:${guildId}] process error:`, err);
+          });
+
+          ffmpeg.on("error", (err) => {
+            console.error(`[music:ffmpeg:${guildId}] process error:`, err);
+          });
+
+          resource = createAudioResource(ffmpeg.stdout, {
+            inputType: StreamType.Raw,
+            inlineVolume: true,
+          });
+          console.log(`[music:${guildId}] Streaming with yt-dlp fallback: ${nextTrack.title}`);
+        }
       }
 
       resource.volume?.setVolumeLogarithmic(queue.volume / 100);
@@ -698,6 +804,14 @@ export class MusicManager {
     if (!queue) return;
 
     this.killStreamProcesses(queue);
+
+    const elapsed = queue.playbackStartTime ? Date.now() - queue.playbackStartTime : 0;
+    // Guard against immediate stream abortion (e.g. within 1.5s for a normal song)
+    if (queue.currentTrack && elapsed < 1500 && (queue.currentTrack.durationSeconds || 0) > 10) {
+      console.warn(
+        `[music:guard:${guildId}] Track "${queue.currentTrack.title}" ended after only ${elapsed}ms! Audio stream aborted prematurely.`
+      );
+    }
 
     if (queue.currentTrack) {
       queue.lastPlayedTrack = queue.currentTrack;

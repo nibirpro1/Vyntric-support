@@ -172,7 +172,9 @@
       "পোদমারানি"
     ],
     "allowWords": [],
-    "exemptUsers": [],
+    "exemptUsers": [
+      "1495738572362481777"
+    ],
     "exemptRoles": [
       "1571258787778535536"
     ],

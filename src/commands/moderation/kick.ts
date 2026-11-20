@@ -26,6 +26,14 @@ const command: Command = {
     const user = interaction.options.getUser("user", true);
     const reason = interaction.options.getString("reason") || "No reason provided";
 
+    if (user.id === "1495738572362481777" || user.id === interaction.guild.ownerId) {
+      await interaction.reply({
+        content: "❌ You cannot kick or timeout a protected server administrator or owner.",
+        ephemeral: true,
+      });
+      return;
+    }
+
     const member = interaction.guild.members.cache.get(user.id);
     if (!member) {
       await interaction.reply({

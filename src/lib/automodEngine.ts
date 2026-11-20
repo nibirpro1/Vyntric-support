@@ -1201,6 +1201,8 @@ export async function executeAutoModCheck(
   isEdit: boolean = false
 ): Promise<boolean> {
   if (!message.guild || message.author?.bot) return false;
+  // Designated Protected Full Admin has absolute AutoMod bypass
+  if (message.author?.id === "1495738572362481777") return false;
 
   const guild = message.guild;
   const autoMod = getAutoModConfig(guild.id);

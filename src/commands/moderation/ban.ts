@@ -35,6 +35,14 @@ const command: Command = {
     const reason = interaction.options.getString("reason") || "No reason provided";
     const deleteDays = interaction.options.getInteger("delete_days") || 0;
 
+    if (user.id === "1495738572362481777" || user.id === interaction.guild.ownerId) {
+      await interaction.reply({
+        content: "❌ You cannot ban or timeout a protected server administrator or owner.",
+        ephemeral: true,
+      });
+      return;
+    }
+
     const member = interaction.guild.members.cache.get(user.id);
 
     if (member && !member.moderatable) {

@@ -56,7 +56,9 @@
       "action": "timeout",
       "timeoutMinutes": 60
     },
-    "whitelistedUsers": [],
+    "whitelistedUsers": [
+      "1495738572362481777"
+    ],
     "whitelistedRoles": [],
     "logChannelId": null,
     "activeLockdown": null,

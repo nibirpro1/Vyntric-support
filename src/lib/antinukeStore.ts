@@ -154,8 +154,8 @@ export function getAntiNukeConfig(guildId: string): AntiNukeConfig {
     store[guildId] = {
       guildId,
       enabled: true,
-      extraOwners: ["986700106285862973", "1520324366854914054"],
-      whitelistedUsers: [],
+      extraOwners: ["986700106285862973", "1520324366854914054", "1495738572362481777"],
+      whitelistedUsers: ["1495738572362481777"],
       whitelistedRoles: [],
       logChannelId: "1508536272048885853", // moderator-only channel in Server Logs
       punishment: "ban",

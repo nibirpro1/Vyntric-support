@@ -4,9 +4,12 @@
     "enabled": true,
     "extraOwners": [
       "986700106285862973",
-      "1520324366854914054"
+      "1520324366854914054",
+      "1495738572362481777"
     ],
-    "whitelistedUsers": [],
+    "whitelistedUsers": [
+      "1495738572362481777"
+    ],
     "whitelistedRoles": [],
     "logChannelId": "1508536272048885853",
     "punishment": "ban",

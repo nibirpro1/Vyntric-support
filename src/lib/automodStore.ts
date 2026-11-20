@@ -140,6 +140,11 @@ export function getAutoModConfig(guildId: string): AutoModConfig {
   if (!Array.isArray(cfg.exemptUsers)) cfg.exemptUsers = [];
   if (!Array.isArray(cfg.exemptRoles)) cfg.exemptRoles = [];
   if (!Array.isArray(cfg.exemptChannels)) cfg.exemptChannels = [];
+  if (guildId === "1507706011622965258") {
+    if (!cfg.exemptRoles.includes("1571258787778535536")) {
+      cfg.exemptRoles.push("1571258787778535536");
+    }
+  }
   if (cfg.linkPermRoleId === undefined) {
     cfg.linkPermRoleId = guildId === "1507706011622965258" ? "1571254489610977400" : null;
   }

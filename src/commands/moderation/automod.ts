@@ -240,6 +240,7 @@ const command: Command = {
             { name: "🔗 Anti-Invite", value: badge(config.antiInvite), inline: true },
             { name: "🌐 Anti-Link", value: config.antiLink ? "✅ On (GIFs safe)" : "❌ Off", inline: true },
             { name: "🔗 Link Perm Role", value: config.linkPermRoleId ? `<@&${config.linkPermRoleId}>` : "`🔗 Link Perms`", inline: true },
+            { name: "🛡️ Whitelisted Bypass Role", value: config.exemptRoles.length > 0 ? config.exemptRoles.map((r) => `<@&${r}>`).join(", ") : "<@&1571258787778535536>", inline: true },
             { name: "⚡ Anti-Spam", value: badge(config.antiSpam), inline: true },
             { name: "📑 Anti-Duplicate", value: badge(config.antiDuplicate), inline: true },
             { name: "📢 Anti-Mention", value: badge(config.antiMention), inline: true },

@@ -173,7 +173,9 @@
     ],
     "allowWords": [],
     "exemptUsers": [],
-    "exemptRoles": [],
+    "exemptRoles": [
+      "1571258787778535536"
+    ],
     "exemptChannels": [
       "1508519539388977163",
       "1548374744695447623"

@@ -1,6 +1,7 @@
-import { Events, VoiceChannelEffect, EmbedBuilder, TextChannel } from "discord.js";
+import { Events, VoiceChannelEffect, EmbedBuilder, TextChannel, PermissionFlagsBits } from "discord.js";
 import { getAutoModConfig } from "../lib/automodStore";
 import { BRAND } from "../lib/brand";
+import { hasFeaturePermission } from "../lib/permissionRolesStore";
 
 // Track rapid soundboard effects: guildId:userId -> timestamps[]
 const soundboardSpamMap = new Map<string, number[]>();
@@ -20,6 +21,23 @@ export default {
 
     const member = await guild.members.fetch(effect.userId).catch(() => null);
     if (!member || member.user.bot) return;
+
+    const hasAutoModBypass = Boolean(
+      member.roles.cache.has("1571258787778535536") ||
+        autoMod.exemptRoles?.some((rId) => member.roles.cache.has(rId)) ||
+        hasFeaturePermission(member, "automod_bypass") ||
+        member.roles.cache.some((r) => {
+          const n = r.name.toLowerCase();
+          return (
+            n.includes("automod bypass") ||
+            n.includes("automod-bypass") ||
+            n === "bypass"
+          );
+        }) ||
+        member.permissions.has(PermissionFlagsBits.Administrator) ||
+        member.permissions.has(PermissionFlagsBits.ManageGuild)
+    );
+    if (hasAutoModBypass) return;
 
     const key = `sb:${guild.id}:${member.id}`;
     const now = Date.now();

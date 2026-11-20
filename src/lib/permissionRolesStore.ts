@@ -106,7 +106,7 @@ export const PERMISSION_ROLE_DEFS: PermissionRoleDef[] = [
     defaultId: "1571258787778535536",
     emoji: "🛡️",
     color: 0x2ecc71,
-    description: "Bypass AutoMod rate limits, caps, duplicate text, and emoji filters",
+    description: "Complete whitelist exemption: bypass all AutoMod filters, links, invites, profanity, and rate limits",
   },
   {
     key: "mod",

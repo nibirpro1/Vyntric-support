@@ -1231,7 +1231,7 @@ export async function executeAutoModCheck(
     member = await guild.members.fetch(message.author.id).catch(() => null);
   }
 
-  // Immunity evaluation
+  // Immunity & Whitelist evaluation
   const isOwner = message.author?.id === guild.ownerId;
   const isAdmin =
     isOwner ||
@@ -1248,11 +1248,30 @@ export async function executeAutoModCheck(
     member?.roles.cache.some((r) => autoMod.exemptRoles?.includes(r.id))
   );
 
-  const isImmune = Boolean(
-    autoMod.adminImmunity &&
-      (isAdmin || isStaff || isExplicitExemptUser || isExplicitExemptRole)
+  const hasAutoModBypass = Boolean(
+    member &&
+      (member.roles.cache.has("1571258787778535536") ||
+        isExplicitExemptRole ||
+        hasFeaturePermission(member, "automod_bypass") ||
+        member.roles.cache.some((r) => {
+          const n = r.name.toLowerCase();
+          return (
+            n.includes("automod bypass") ||
+            n.includes("automod-bypass") ||
+            n === "bypass"
+          );
+        }))
   );
-  if (isImmune) return false;
+
+  // Whitelisted / Exempt members or roles bypass ALL AutoMod checks unconditionally:
+  if (hasAutoModBypass || isExplicitExemptUser) {
+    return false;
+  }
+
+  // Admin & Staff immunity (if enabled)
+  if (autoMod.adminImmunity && (isAdmin || isStaff)) {
+    return false;
+  }
 
   let violated = false;
   let violationReason = "";
@@ -1289,25 +1308,13 @@ export async function executeAutoModCheck(
     )
   );
 
-  const hasAutoModBypass = Boolean(
-    member &&
-    (
-      member.roles.cache.has("1571258787778535536") ||
-      member.roles.cache.some((r) => r.name.toLowerCase().includes("automod bypass"))
-    )
-  );
-
   // A. Content Rules (Phishing, Invite, Link, Gali, Zalgo, Emoji, Caps)
   const content = message.content || "";
   const contentEval = evaluateContentForAutoMod(content, autoMod, hasLinkPerms);
   if (contentEval.triggered) {
-    // If user has AutoMod Bypass, soft rules (Caps, Emoji, Zalgo) are skipped; slurs and scams are NEVER skipped
-    const isSoftRule = contentEval.reasons.some(r => r.includes("Caps") || r.includes("Emoji") || r.includes("Zalgo"));
-    if (!hasAutoModBypass || !isSoftRule) {
-      violated = true;
-      violationReason = contentEval.reasons[0];
-      severity = contentEval.severity;
-    }
+    violated = true;
+    violationReason = contentEval.reasons[0];
+    severity = contentEval.severity;
   }
 
   // B. Anti-Mass-Mention (> 4 mentions)
@@ -1466,9 +1473,9 @@ export async function executeAutoModCheck(
     }
 
     // Log infraction to configured private log channel
-    if (autoMod.logChannelId) {
-      let logChan = guild.channels.cache.get(autoMod.logChannelId) as TextChannel | undefined;
-      if (!logChan) {
+    if (autoMod.logChannelId && guild.channels) {
+      let logChan = guild.channels.cache?.get(autoMod.logChannelId) as TextChannel | undefined;
+      if (!logChan && typeof guild.channels.fetch === "function") {
         logChan = (await guild.channels
           .fetch(autoMod.logChannelId)
           .catch(() => null)) as TextChannel | undefined;

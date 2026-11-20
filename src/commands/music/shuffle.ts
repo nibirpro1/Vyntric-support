@@ -1,16 +1,21 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  MessageFlags,
+  SlashCommandBuilder,
+} from "discord.js";
 import { Command } from "../../structures/Command";
-import { musicManager } from "../../music/MusicManager";
+import { VyntricClient } from "../../structures/VyntricClient";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("shuffle")
     .setDescription("Randomly shuffle upcoming songs in the queue"),
-  async execute(interaction: ChatInputCommandInteraction) {
+  async execute(interaction: ChatInputCommandInteraction, client: VyntricClient) {
     if (!interaction.guildId) return;
 
-    const ok = musicManager.shuffle(interaction.guildId);
+    const ok = client.musicHandler.shuffle(interaction.guildId);
     if (!ok) {
       await interaction.reply({
         embeds: [
@@ -18,7 +23,7 @@ const command: Command = {
             .setColor(BRAND.colors.warning)
             .setDescription("⚠️ Need at least 2 songs in the queue to shuffle."),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

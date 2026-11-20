@@ -8,3 +8,5 @@ data/*.tmp
 preview.txt
 bin/*
 !bin/yt-dlp
+
+CONVERSATION_Discord_Bot_Working_Fine.md

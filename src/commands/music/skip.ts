@@ -1,16 +1,21 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  MessageFlags,
+  SlashCommandBuilder,
+} from "discord.js";
 import { Command } from "../../structures/Command";
-import { musicManager } from "../../music/MusicManager";
+import { VyntricClient } from "../../structures/VyntricClient";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("skip")
     .setDescription("Skip the currently playing track"),
-  async execute(interaction: ChatInputCommandInteraction) {
+  async execute(interaction: ChatInputCommandInteraction, client: VyntricClient) {
     if (!interaction.guildId) return;
 
-    const ok = musicManager.skip(interaction.guildId);
+    const ok = await client.musicHandler.skip(interaction.guildId);
     if (!ok) {
       await interaction.reply({
         embeds: [
@@ -18,7 +23,7 @@ const command: Command = {
             .setColor(BRAND.colors.warning)
             .setDescription("⚠️ Nothing is currently playing to skip."),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

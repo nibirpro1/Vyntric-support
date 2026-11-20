@@ -1,7 +1,9 @@
 import "dotenv/config";
 import net from "net";
 import { ActivityType, GatewayIntentBits, Partials } from "discord.js";
+import { Shoukaku, Connectors } from "shoukaku";
 import { VyntricClient } from "./structures/VyntricClient";
+import { MusicHandler } from "./music/MusicHandler";
 import { loadCommands } from "./handlers/loadCommands";
 import { loadEvents } from "./handlers/loadEvents";
 import { flushStore } from "./lib/store";
@@ -43,6 +45,23 @@ const client = new VyntricClient({
     Partials.GuildMember,
   ],
 });
+
+const lavalinkNodes = [
+  {
+    name: process.env.LAVALINK_NAME || "AjieBlogs-v4",
+    url: `${process.env.LAVALINK_HOST || "lava-v4.ajieblogs.eu.org"}:${process.env.LAVALINK_PORT || "80"}`,
+    auth: process.env.LAVALINK_PASSWORD || "https://dsc.gg/ajidevserver",
+    secure: process.env.LAVALINK_SECURE === "true",
+  },
+];
+
+client.shoukaku = new Shoukaku(new Connectors.DiscordJS(client), lavalinkNodes);
+client.musicHandler = new MusicHandler(client);
+
+client.shoukaku.on("ready", (name) => console.log(`[Lavalink] Node ${name} is ready`));
+client.shoukaku.on("error", (name, error) => console.error(`[Lavalink] Node ${name} error:`, error));
+client.shoukaku.on("close", (name, code, reason) => console.warn(`[Lavalink] Node ${name} closed: ${code} ${reason}`));
+client.shoukaku.on("disconnect", (name, count) => console.warn(`[Lavalink] Node ${name} disconnected. Retry: ${count}`));
 
 process.on("unhandledRejection", (reason) => console.error("[unhandledRejection]", reason));
 process.on("uncaughtException", (err: any) => {

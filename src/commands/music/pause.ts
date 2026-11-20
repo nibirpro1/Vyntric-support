@@ -1,16 +1,21 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import {
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  MessageFlags,
+  SlashCommandBuilder,
+} from "discord.js";
 import { Command } from "../../structures/Command";
-import { musicManager } from "../../music/MusicManager";
+import { VyntricClient } from "../../structures/VyntricClient";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("pause")
     .setDescription("Pause current music playback"),
-  async execute(interaction: ChatInputCommandInteraction) {
+  async execute(interaction: ChatInputCommandInteraction, client: VyntricClient) {
     if (!interaction.guildId) return;
 
-    const ok = musicManager.pause(interaction.guildId);
+    const ok = await client.musicHandler.pause(interaction.guildId);
     if (!ok) {
       await interaction.reply({
         embeds: [
@@ -18,7 +23,7 @@ const command: Command = {
             .setColor(BRAND.colors.warning)
             .setDescription("⚠️ Music is already paused or not playing."),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

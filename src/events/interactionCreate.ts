@@ -3,7 +3,6 @@ import { VyntricClient } from "../structures/VyntricClient";
 import { handleTicketComponent } from "../interactions/ticketInteractions";
 import { handleRoleButton } from "../interactions/roleInteractions";
 import { handleVerificationButton } from "../interactions/verificationInteractions";
-import { musicManager } from "../music/MusicManager";
 import { IDS } from "../lib/customIds";
 import { BRAND } from "../lib/brand";
 import { toggleRsvpMeeting } from "../lib/store";
@@ -144,11 +143,6 @@ export default {
           content: msg,
           flags: MessageFlags.Ephemeral,
         });
-        return;
-      }
-
-      if (interaction.isButton() && interaction.customId.startsWith("music:")) {
-        await musicManager.handleButton(interaction);
         return;
       }
 

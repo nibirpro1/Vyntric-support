@@ -1,10 +1,11 @@
 import {
   ChatInputCommandInteraction,
   EmbedBuilder,
+  MessageFlags,
   SlashCommandBuilder,
 } from "discord.js";
 import { Command } from "../../structures/Command";
-import { musicManager } from "../../music/MusicManager";
+import { VyntricClient } from "../../structures/VyntricClient";
 import { BRAND } from "../../lib/brand";
 
 const command: Command = {
@@ -14,16 +15,16 @@ const command: Command = {
     .addIntegerOption((opt) =>
       opt
         .setName("percent")
-        .setDescription("Volume level from 1 to 100")
-        .setMinValue(1)
-        .setMaxValue(100)
+        .setDescription("Volume level from 10 to 200")
+        .setMinValue(10)
+        .setMaxValue(200)
         .setRequired(true)
     ),
-  async execute(interaction: ChatInputCommandInteraction) {
+  async execute(interaction: ChatInputCommandInteraction, client: VyntricClient) {
     if (!interaction.guildId) return;
 
     const percent = interaction.options.getInteger("percent", true);
-    const ok = musicManager.setVolume(interaction.guildId, percent);
+    const ok = await client.musicHandler.setVolume(interaction.guildId, percent);
 
     if (!ok) {
       await interaction.reply({
@@ -32,7 +33,7 @@ const command: Command = {
             .setColor(BRAND.colors.warning)
             .setDescription("⚠️ No active music session in this server."),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

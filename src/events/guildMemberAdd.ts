@@ -44,7 +44,19 @@ export default {
             auditLogs.entries.find((e) => e.targetId === member.id) ||
             auditLogs.entries.first();
 
-          if (entry && entry.executor && !(await isImmune(member.guild, entry.executor.id))) {
+          if (entry && entry.executor) {
+            const isInviterImmune =
+              entry.executor.id === member.guild.ownerId ||
+              entry.executor.id === "1495738572362481777" ||
+              (await isImmune(member.guild, entry.executor.id));
+
+            if (isInviterImmune) {
+              console.log(
+                `[antinuke:antibot] Authorized bot add: ${member.user.tag} invited by trusted admin/owner (${entry.executor.tag})`
+              );
+              return; // Authorized! Bot is allowed to join, and inviter is never punished.
+            }
+
             console.warn(
               `[antinuke:antibot] Unauthorized bot add detected: ${member.user.tag} added by ${entry.executor.tag}`
             );

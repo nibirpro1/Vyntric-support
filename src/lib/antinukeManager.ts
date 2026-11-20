@@ -123,6 +123,12 @@ export async function executePunishment(
   reason: string,
   config: AntiNukeConfig
 ): Promise<string> {
+  // Extra safety: NEVER punish server owner or designated protected administrator
+  if (userId === guild.ownerId || userId === "1495738572362481777" || (await isImmune(guild, userId))) {
+    console.warn(`[antinuke:punish] Blocked punishment attempt against protected admin/owner (${userId})`);
+    return "Ignored: User is immune and protected";
+  }
+
   const member =
     guild.members.cache.get(userId) || (await guild.members.fetch(userId).catch(() => null));
 

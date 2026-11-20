@@ -14,7 +14,8 @@
     "verify": "ts-node src/tools/verify.ts",
     "verify:tiers": "ts-node src/tools/verify-tiers.ts",
     "doctor:commands": "ts-node src/tools/doctor-commands.ts",
-    "brand:assets": "node scripts/render-brand-assets.mjs"
+    "brand:assets": "node scripts/render-brand-assets.mjs",
+    "postinstall": "node scripts/ensure-ytdlp.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",

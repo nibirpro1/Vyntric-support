@@ -6,4 +6,5 @@ data/*.tmp
 *.log
 *.exit
 preview.txt
-bin/
+bin/*
+!bin/yt-dlp

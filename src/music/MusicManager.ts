@@ -78,8 +78,21 @@ function getFfmpegPath(): string {
   return "ffmpeg";
 }
 
-const LOCAL_YTDLP = path.resolve(process.cwd(), "bin", "yt-dlp.exe");
-const YTDLP_BIN = fs.existsSync(LOCAL_YTDLP) ? LOCAL_YTDLP : "yt-dlp";
+export function getYtDlpPath(): string {
+  const binaryName = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+  const localBin = path.resolve(process.cwd(), "bin", binaryName);
+  if (fs.existsSync(localBin)) {
+    try {
+      if (process.platform !== "win32") {
+        fs.chmodSync(localBin, 0o755);
+      }
+    } catch {}
+    return localBin;
+  }
+  return "yt-dlp";
+}
+
+export const YTDLP_BIN = getYtDlpPath();
 
 function formatSeconds(secs: number): string {
   if (isNaN(secs) || secs <= 0) return "00:00";
@@ -756,7 +769,6 @@ export class MusicManager {
       .replace(/\(lyrics?\)/gi, "")
       .trim();
 
-    const ytdl = await getYtdlClient();
     const queries = [
       `${cleanTitle} audio`,
       `${cleanTitle} lyric`,
@@ -770,19 +782,20 @@ export class MusicManager {
         if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
           for (const v of searchRes.videos.slice(0, 5)) {
             if (track.url.includes(v.videoId)) continue;
-            try {
-              await ytdl.getInfo(v.videoId);
+            const targetUrl = v.url || `https://www.youtube.com/watch?v=${v.videoId}`;
+            const directUrl = await getDirectAudioUrl(targetUrl);
+            if (directUrl) {
               console.log(`[music:resolve] Successfully found clean playable alternative: "${v.title}" (${v.videoId})`);
               return {
                 ...track,
                 id: `yt_${v.videoId}`,
                 title: v.title || track.title,
-                url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
+                url: targetUrl,
                 thumbnail: v.thumbnail || track.thumbnail,
                 durationSeconds: v.duration?.seconds || track.durationSeconds,
                 durationFormatted: v.duration?.timestamp || track.durationFormatted,
               };
-            } catch {}
+            }
           }
         }
       } catch {}
@@ -919,7 +932,51 @@ export class MusicManager {
             console.log(`[music:${guildId}] Streaming with direct HTTPS audio URL: ${nextTrack.title}`);
           }
         } catch (directErr: any) {
-          console.warn(`[music:${guildId}] Direct audio URL extraction failed (${directErr?.message || directErr}), trying piped yt-dlp...`);
+          console.warn(`[music:${guildId}] Direct audio URL extraction failed (${directErr?.message || directErr}), checking clean alternative...`);
+        }
+
+        // 1.5. Clean Alternative check if direct extraction failed (e.g. video blocked/restricted)
+        if (!streamPiped) {
+          try {
+            const altTrack = await this.findCleanAlternative(nextTrack);
+            if (altTrack) {
+              const altDirectUrl = await getDirectAudioUrl(altTrack.url);
+              if (altDirectUrl) {
+                const ffmpeg = spawn(
+                  ffmpegBin,
+                  [
+                    "-reconnect", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "5",
+                    "-analyzeduration", "0",
+                    "-loglevel", "0",
+                    "-i", altDirectUrl,
+                    "-f", "s16le",
+                    "-ar", "48000",
+                    "-ac", "2",
+                    "pipe:1",
+                  ],
+                  { stdio: ["ignore", "pipe", "ignore"] }
+                );
+
+                queue.streamProcesses = [ffmpeg];
+
+                ffmpeg.on("error", (err) => {
+                  console.error(`[music:ffmpeg:alt:${guildId}] process error:`, err);
+                });
+
+                resource = createAudioResource(ffmpeg.stdout, {
+                  inputType: StreamType.Raw,
+                  inlineVolume: true,
+                });
+                streamPiped = true;
+                queue.currentTrack = altTrack;
+                console.log(`[music:${guildId}] Streaming with clean alternative direct URL: ${altTrack.title}`);
+              }
+            }
+          } catch (altErr: any) {
+            console.warn(`[music:${guildId}] findCleanAlternative search failed:`, altErr?.message || altErr);
+          }
         }
 
         // 2. Tier 2: Stream live piped yt-dlp stdout -> ffmpeg stdin
@@ -988,13 +1045,50 @@ export class MusicManager {
           }
         }
 
-        // 3. Tier 3 (Fallback): @distube/ytdl-core
+        // 3. Tier 3 (Fallback): @distube/ytdl-core or keyword search fallback
         if (!streamPiped) {
-          const ytdl = await getYtdlClient();
-          const ytdlStream = await ytdl.download(nextTrack.url, {
-            filter: { hasAudio: true, hasVideo: false },
-            quality: "highestaudio",
-          });
+          if (!/youtu\.?be/i.test(nextTrack.url)) {
+            try {
+              const fallbackMatch = await searchYouTubeTrack(`${nextTrack.title} ${nextTrack.author}`);
+              if (fallbackMatch) {
+                const fallbackUrl = await getDirectAudioUrl(fallbackMatch.url);
+                if (fallbackUrl) {
+                  const ffmpeg = spawn(
+                    ffmpegBin,
+                    [
+                      "-reconnect", "1",
+                      "-reconnect_streamed", "1",
+                      "-reconnect_delay_max", "5",
+                      "-analyzeduration", "0",
+                      "-loglevel", "0",
+                      "-i", fallbackUrl,
+                      "-f", "s16le",
+                      "-ar", "48000",
+                      "-ac", "2",
+                      "pipe:1",
+                    ],
+                    { stdio: ["ignore", "pipe", "ignore"] }
+                  );
+                  queue.streamProcesses = [ffmpeg];
+                  ffmpeg.on("error", (err) => {
+                    console.error(`[music:ffmpeg:fallback:${guildId}] process error:`, err);
+                  });
+                  resource = createAudioResource(ffmpeg.stdout, {
+                    inputType: StreamType.Raw,
+                    inlineVolume: true,
+                  });
+                  streamPiped = true;
+                }
+              }
+            } catch {}
+          }
+
+          if (!streamPiped && /youtu\.?be/i.test(nextTrack.url)) {
+            const ytdl = await getYtdlClient();
+            const ytdlStream = await ytdl.download(nextTrack.url, {
+              filter: { hasAudio: true, hasVideo: false },
+              quality: "highestaudio",
+            });
 
           const ffmpeg = spawn(
             ffmpegBin,
@@ -1066,6 +1160,11 @@ export class MusicManager {
           });
           console.log(`[music:${guildId}] Streaming with @distube/ytdl-core fallback: ${nextTrack.title}`);
         }
+      }
+    }
+
+      if (!resource) {
+        throw new Error("Unable to obtain playable audio stream from provider.");
       }
 
       resource.volume?.setVolumeLogarithmic(queue.volume / 100);

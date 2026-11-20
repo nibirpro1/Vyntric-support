@@ -4,8 +4,21 @@ import path from "path";
 const ytSearch = require("yt-search");
 import { Track } from "./types";
 
-const LOCAL_YTDLP = path.resolve(process.cwd(), "bin", "yt-dlp.exe");
-const YTDLP_BIN = fs.existsSync(LOCAL_YTDLP) ? LOCAL_YTDLP : "yt-dlp";
+function getYtDlpPath(): string {
+  const binaryName = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+  const localBin = path.resolve(process.cwd(), "bin", binaryName);
+  if (fs.existsSync(localBin)) {
+    try {
+      if (process.platform !== "win32") {
+        fs.chmodSync(localBin, 0o755);
+      }
+    } catch {}
+    return localBin;
+  }
+  return "yt-dlp";
+}
+
+const YTDLP_BIN = getYtDlpPath();
 
 function formatSeconds(secs: number): string {
   if (isNaN(secs) || secs <= 0) return "00:00";

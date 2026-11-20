@@ -11,6 +11,7 @@ import { getSettings, findTicketByChannel } from "./store";
 import { hasFeaturePermission } from "./permissionRolesStore";
 import { getLoggingConfig } from "./loggingStore";
 import { BRAND } from "./brand";
+import { isUniversalImmune } from "./universalWhitelist";
 
 // ─────────────────────────────────────────────────────────────
 // Built-in Multilingual Gali & Abusive Language Lists
@@ -1201,8 +1202,13 @@ export async function executeAutoModCheck(
   isEdit: boolean = false
 ): Promise<boolean> {
   if (!message.guild || message.author?.bot) return false;
-  // Designated Protected Full Admin has absolute AutoMod bypass
-  if (message.author?.id === "1495738572362481777") return false;
+  // Universal Immune / Whitelist (Server Owner, ExtraOwners, Whitelisted Users/Roles, Admins, notraian69.)
+  if (
+    message.author?.id &&
+    isUniversalImmune(message.guild, message.author.id, message.member)
+  ) {
+    return false;
+  }
 
   const guild = message.guild;
   const autoMod = getAutoModConfig(guild.id);
@@ -1234,6 +1240,11 @@ export async function executeAutoModCheck(
   }
 
   // Immunity & Whitelist evaluation
+  const isUniversalWhitelisted = Boolean(
+    message.author?.id && isUniversalImmune(guild, message.author.id, member)
+  );
+  if (isUniversalWhitelisted) return false;
+
   const isOwner = message.author?.id === guild.ownerId;
   const isAdmin =
     isOwner ||
@@ -1251,18 +1262,19 @@ export async function executeAutoModCheck(
   );
 
   const hasAutoModBypass = Boolean(
-    member &&
-      (member.roles.cache.has("1571258787778535536") ||
-        isExplicitExemptRole ||
-        hasFeaturePermission(member, "automod_bypass") ||
-        member.roles.cache.some((r) => {
-          const n = r.name.toLowerCase();
-          return (
-            n.includes("automod bypass") ||
-            n.includes("automod-bypass") ||
-            n === "bypass"
-          );
-        }))
+    isUniversalWhitelisted ||
+      (member &&
+        (member.roles.cache.has("1571258787778535536") ||
+          isExplicitExemptRole ||
+          hasFeaturePermission(member, "automod_bypass") ||
+          member.roles.cache.some((r) => {
+            const n = r.name.toLowerCase();
+            return (
+              n.includes("automod bypass") ||
+              n.includes("automod-bypass") ||
+              n === "bypass"
+            );
+          })))
   );
 
   // Whitelisted / Exempt members or roles bypass ALL AutoMod checks unconditionally:

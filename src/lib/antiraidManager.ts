@@ -27,6 +27,7 @@ import { getAntiNukeConfig } from "./antinukeStore";
 import { hasFeaturePermission } from "./permissionRolesStore";
 import { BRAND } from "./brand";
 import { VyntricClient } from "../structures/VyntricClient";
+import { isUniversalImmune } from "./universalWhitelist";
 
 // ─────────────────────────────────────────────────────────────
 // IN-MEMORY TELEMETRY & TRACKING STORES
@@ -121,26 +122,13 @@ export function similarityRatio(s1: string, s2: string): number {
 /**
  * Checks whether a user is immune from anti-raid triggers.
  */
-export function isImmune(guild: Guild, userId: string): boolean {
+export function isImmune(guild: Guild, userId: string, member?: GuildMember | null): boolean {
   if (!userId) return true;
-  if (guild.client.user && userId === guild.client.user.id) return true;
-  if (guild.ownerId === userId || userId === "1495738572362481777") return true;
+  const targetMember = member || guild.members.cache.get(userId);
+  if (isUniversalImmune(guild, userId, targetMember)) return true;
 
-  const nukeConfig = getAntiNukeConfig(guild.id);
-  if (nukeConfig.extraOwners.includes(userId)) return true;
-
-  const raidConfig = getAntiRaidConfig(guild.id);
-  if (raidConfig.whitelistedUsers.includes(userId)) return true;
-
-  const member = guild.members.cache.get(userId);
-  if (member) {
-    if (member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-      return true;
-    }
-    if (raidConfig.whitelistedRoles.some((roleId) => member.roles.cache.has(roleId))) {
-      return true;
-    }
-    if (hasFeaturePermission(member, "security") || hasFeaturePermission(member, "mod")) {
+  if (targetMember) {
+    if (hasFeaturePermission(targetMember, "security") || hasFeaturePermission(targetMember, "mod")) {
       return true;
     }
   }

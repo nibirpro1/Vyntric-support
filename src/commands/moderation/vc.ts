@@ -17,6 +17,7 @@ import { addVcBan, removeVcBan, getGuildVcBans, isUserVcBanned } from "../../lib
 import { getVc247Status, joinVc247, leaveVc247 } from "../../lib/vc247Manager";
 import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
+import { isUniversalImmune } from "../../lib/universalWhitelist";
 
 const command: Command = {
   data: new SlashCommandBuilder()
@@ -414,7 +415,7 @@ const command: Command = {
     const staffMember = interaction.member as any;
     const isOwnerOrAdmin =
       interaction.guild.ownerId === interaction.user.id ||
-      interaction.user.id === "1495738572362481777" ||
+      isUniversalImmune(interaction.guild, interaction.user.id, staffMember) ||
       staffMember?.permissions?.has(PermissionFlagsBits.Administrator) ||
       staffMember?.permissions?.has(PermissionFlagsBits.ManageGuild);
 
@@ -644,9 +645,9 @@ const command: Command = {
     }
 
     if (sub === "ban") {
-      if (targetUser.id === "1495738572362481777" || targetUser.id === interaction.guild.ownerId) {
+      if (isUniversalImmune(interaction.guild, targetUser.id, member)) {
         await interaction.editReply({
-          content: "❌ You cannot VC-ban a protected server administrator or owner.",
+          content: "❌ You cannot VC-ban a protected server administrator or whitelisted member.",
         });
         return;
       }
@@ -729,10 +730,10 @@ const command: Command = {
       return;
     }
 
-    // Role hierarchy check & protected administrator check
-    if (member.id === "1495738572362481777" || member.id === interaction.guild.ownerId) {
+    // Role hierarchy check & protected administrator / whitelisted member check
+    if (isUniversalImmune(interaction.guild, member.id, member)) {
       await interaction.editReply({
-        content: "❌ You cannot moderate a protected server administrator or owner.",
+        content: "❌ You cannot moderate a protected server administrator or whitelisted member.",
       });
       return;
     }

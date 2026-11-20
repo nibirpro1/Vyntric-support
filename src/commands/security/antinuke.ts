@@ -16,6 +16,11 @@ import {
 } from "../../lib/antinukeStore";
 import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
+import {
+  syncWhitelistAdd,
+  syncWhitelistRemove,
+  syncWhitelistClear,
+} from "../../lib/universalWhitelist";
 
 const command: Command = {
   data: new SlashCommandBuilder()
@@ -206,10 +211,10 @@ const command: Command = {
 
         if (user) {
           if (newUsers.includes(user.id)) {
-            changes.push(`ℹ️ <@${user.id}> is already on the Anti-Nuke user whitelist.`);
+            changes.push(`ℹ️ <@${user.id}> is already on the Universal Whitelist.`);
           } else {
             newUsers.push(user.id);
-            changes.push(`✅ Added user <@${user.id}> (\`${user.tag}\`) to the Anti-Nuke whitelist.`);
+            changes.push(`✅ Added user <@${user.id}> (\`${user.tag}\`) to the **Universal Whitelist**.\n• Full Immunity: AntiNuke, AntiRaid, AutoMod (Links/Invites/Bad Words/Spam), and Moderation protection.`);
           }
         }
 
@@ -217,24 +222,26 @@ const command: Command = {
           if (role.id === interaction.guild.id) {
             changes.push(`⚠️ Cannot whitelist the \`@everyone\` role.`);
           } else if (newRoles.includes(role.id)) {
-            changes.push(`ℹ️ <@&${role.id}> is already on the Anti-Nuke role whitelist.`);
+            changes.push(`ℹ️ <@&${role.id}> is already on the Universal Whitelist.`);
           } else {
             newRoles.push(role.id);
-            changes.push(`✅ Added role <@&${role.id}> (\`${role.name}\`) to the Anti-Nuke whitelist.`);
+            changes.push(`✅ Added role <@&${role.id}> (\`${role.name}\`) to the **Universal Whitelist**.\n• All members with this role now bypass AntiNuke, AntiRaid, and AutoMod.`);
           }
         }
 
-        updateAntiNukeConfig(guildId, {
-          whitelistedUsers: newUsers,
-          whitelistedRoles: newRoles,
-        });
+        // 3-Way Atomic Synchronization across AntiNuke, AntiRaid, and AutoMod
+        syncWhitelistAdd(guildId, { userId: user?.id, roleId: role?.id });
 
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.success)
-          .setTitle("🛡️ Anti-Nuke Whitelist Updated")
+          .setTitle("🛡️ Universal Whitelist Updated (Full Bypass)")
           .setDescription(changes.join("\n\n"))
+          .addFields({
+            name: "⚡ 100% Full Bypass Active",
+            value: "Whitelisted users and roles now bypass **all bot systems** (Anti-Nuke, Anti-Raid, AutoMod filters, and cannot be moderated or warned).",
+          })
           .setFooter({
-            text: `${BRAND.name} Security Shield • Whitelisted users/role members are immune from Anti-Nuke triggers`,
+            text: `${BRAND.name} Security Shield • Universal Immunity Active`,
           })
           .setTimestamp();
 
@@ -249,7 +256,7 @@ const command: Command = {
         if (!user && !role) {
           await interaction.reply({
             content:
-              "⚠️ **Missing Target:** Please specify either a **user** (`user:@User`) or a **role** (`role:@Role`) to remove from the Anti-Nuke whitelist.",
+              "⚠️ **Missing Target:** Please specify either a **user** (`user:@User`) or a **role** (`role:@Role`) to remove from the whitelist.",
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -261,30 +268,26 @@ const command: Command = {
 
         if (user) {
           if (!newUsers.includes(user.id)) {
-            changes.push(`⚠️ User <@${user.id}> is not in the Anti-Nuke whitelist.`);
+            changes.push(`⚠️ User <@${user.id}> is not in the whitelist.`);
           } else {
-            newUsers = newUsers.filter((id) => id !== user.id);
-            changes.push(`✅ Removed user <@${user.id}> from the Anti-Nuke whitelist.`);
+            changes.push(`✅ Removed user <@${user.id}> from the **Universal Whitelist**.`);
           }
         }
 
         if (role) {
           if (!newRoles.includes(role.id)) {
-            changes.push(`⚠️ Role <@&${role.id}> is not in the Anti-Nuke whitelist.`);
+            changes.push(`⚠️ Role <@&${role.id}> is not in the whitelist.`);
           } else {
-            newRoles = newRoles.filter((id) => id !== role.id);
-            changes.push(`✅ Removed role <@&${role.id}> from the Anti-Nuke whitelist.`);
+            changes.push(`✅ Removed role <@&${role.id}> from the **Universal Whitelist**.`);
           }
         }
 
-        updateAntiNukeConfig(guildId, {
-          whitelistedUsers: newUsers,
-          whitelistedRoles: newRoles,
-        });
+        // 3-Way Atomic Removal across AntiNuke, AntiRaid, and AutoMod
+        syncWhitelistRemove(guildId, { userId: user?.id, roleId: role?.id });
 
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
-          .setTitle("🛡️ Anti-Nuke Whitelist Updated")
+          .setTitle("🛡️ Universal Whitelist Updated")
           .setDescription(changes.join("\n\n"))
           .setFooter({ text: `${BRAND.name} Security Shield` })
           .setTimestamp();
@@ -294,30 +297,36 @@ const command: Command = {
       }
 
       if (sub === "list") {
+        const latestConfig = getAntiNukeConfig(guildId);
         const usersList =
-          config.whitelistedUsers.length > 0
-            ? config.whitelistedUsers.map((id) => `• <@${id}> (\`${id}\`)`).join("\n")
+          latestConfig.whitelistedUsers.length > 0
+            ? latestConfig.whitelistedUsers.map((id) => `• <@${id}> (\`${id}\`)`).join("\n")
             : "_No whitelisted users configured._";
 
         const rolesList =
-          config.whitelistedRoles.length > 0
-            ? config.whitelistedRoles.map((id) => `• <@&${id}> (\`${id}\`)`).join("\n")
+          latestConfig.whitelistedRoles.length > 0
+            ? latestConfig.whitelistedRoles.map((id) => `• <@&${id}> (\`${id}\`)`).join("\n")
             : "_No whitelisted roles configured._";
 
         const embed = new EmbedBuilder()
           .setColor(BRAND.colors.primary)
-          .setTitle("🛡️ Anti-Nuke Immunity Whitelist")
+          .setTitle("🛡️ Universal Immunity & Whitelist")
           .setDescription(
-            "Members holding whitelisted roles or users explicitly whitelisted bypass anti-nuke rate-limits and actions."
+            "Users and members holding whitelisted roles bypass **ALL bot features and restrictions**:\n" +
+            "• **Anti-Nuke Shield:** Exempt from all mass action rate-limits and bot addition penalties.\n" +
+            "• **AutoMod:** 100% bypass for links, invites, bad words, attachments, spam, and mentions.\n" +
+            "• **Anti-Raid:** Unrestricted join gates, account age checks, and avatar locks.\n" +
+            "• **Staff Commands:** Protected against `/warn`, `/timeout`, `/kick`, and `/ban`.\n" +
+            "• **Permissions:** Full access to all bot features."
           )
           .addFields(
             {
-              name: `👥 Whitelisted Users (${config.whitelistedUsers.length})`,
+              name: `👥 Whitelisted Users (${latestConfig.whitelistedUsers.length})`,
               value: usersList,
               inline: false,
             },
             {
-              name: `🛡️ Whitelisted Roles (${config.whitelistedRoles.length})`,
+              name: `🛡️ Whitelisted Roles (${latestConfig.whitelistedRoles.length})`,
               value: rolesList,
               inline: false,
             }
@@ -332,17 +341,16 @@ const command: Command = {
       }
 
       if (sub === "clear") {
-        const type = interaction.options.getString("type", true);
+        const type = interaction.options.getString("type", true) as "users" | "roles" | "all";
+        syncWhitelistClear(guildId, type);
+
         let msg = "";
         if (type === "users") {
-          updateAntiNukeConfig(guildId, { whitelistedUsers: [] });
-          msg = "🧹 Cleared all **whitelisted users** from Anti-Nuke protection.";
+          msg = "🧹 Cleared all **whitelisted users** across AntiNuke, AntiRaid, and AutoMod.";
         } else if (type === "roles") {
-          updateAntiNukeConfig(guildId, { whitelistedRoles: [] });
-          msg = "🧹 Cleared all **whitelisted roles** from Anti-Nuke protection.";
+          msg = "🧹 Cleared all **whitelisted roles** across AntiNuke, AntiRaid, and AutoMod.";
         } else {
-          updateAntiNukeConfig(guildId, { whitelistedUsers: [], whitelistedRoles: [] });
-          msg = "💥 Cleared all **whitelisted users and roles** from Anti-Nuke protection.";
+          msg = "💥 Cleared all **whitelisted users and roles** across AntiNuke, AntiRaid, and AutoMod.";
         }
 
         await interaction.reply({ content: `✅ ${msg}` });

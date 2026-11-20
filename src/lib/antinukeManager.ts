@@ -11,6 +11,7 @@ import {
 } from "discord.js";
 import { AntiNukeConfig, getAntiNukeConfig } from "./antinukeStore";
 import { BRAND } from "./brand";
+import { isUniversalImmune, isUniversalImmuneAsync } from "./universalWhitelist";
 
 // Sliding-window action tracker: Map<key, timestamp[]>
 const actionTracker = new Map<string, number[]>();
@@ -23,27 +24,7 @@ export function isImmuneSync(
   userId: string,
   member?: GuildMember | null
 ): boolean {
-  if (!userId) return true;
-  // Bot itself is immune
-  if (guild.client.user && userId === guild.client.user.id) return true;
-  // Server Owner and designated Admin/Extra Owners are always immune
-  if (guild.ownerId === userId || userId === "1495738572362481777") return true;
-
-  const config = getAntiNukeConfig(guild.id);
-  // Extra owners are immune
-  if (config.extraOwners.includes(userId)) return true;
-  // Whitelisted users are immune
-  if (config.whitelistedUsers.includes(userId)) return true;
-
-  // Check whitelisted roles with cached member
-  if (config.whitelistedRoles.length > 0) {
-    const targetMember = member || guild.members.cache.get(userId);
-    if (targetMember && config.whitelistedRoles.some((rId) => targetMember.roles.cache.has(rId))) {
-      return true;
-    }
-  }
-
-  return false;
+  return isUniversalImmune(guild, userId, member);
 }
 
 /**
@@ -56,30 +37,7 @@ export async function isImmune(
   userId: string,
   member?: GuildMember | null
 ): Promise<boolean> {
-  if (!userId) return true;
-  // Bot itself is immune
-  if (guild.client.user && userId === guild.client.user.id) return true;
-  // Server Owner and designated Admin/Extra Owners are always immune
-  if (guild.ownerId === userId || userId === "1495738572362481777") return true;
-
-  const config = getAntiNukeConfig(guild.id);
-  // Extra owners are immune
-  if (config.extraOwners.includes(userId)) return true;
-  // Whitelisted users are immune
-  if (config.whitelistedUsers.includes(userId)) return true;
-
-  // Check whitelisted roles
-  if (config.whitelistedRoles.length > 0) {
-    let targetMember: GuildMember | null | undefined = member || guild.members.cache.get(userId);
-    if (!targetMember) {
-      targetMember = await guild.members.fetch(userId).catch(() => null);
-    }
-    if (targetMember && config.whitelistedRoles.some((rId) => targetMember.roles.cache.has(rId))) {
-      return true;
-    }
-  }
-
-  return false;
+  return isUniversalImmuneAsync(guild, userId, member);
 }
 
 /**

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { Guild, GuildMember, PermissionFlagsBits, Role } from "discord.js";
+import { isUniversalImmune } from "./universalWhitelist";
 
 export type FeaturePermission =
   | "link"
@@ -264,6 +265,7 @@ export async function resolveFeatureRole(
 export function hasFeaturePermission(member: GuildMember, feature: FeaturePermission): boolean {
   if (member.id === member.guild.ownerId) return true;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (isUniversalImmune(member.guild, member.id, member)) return true;
   if (feature === "move" && member.permissions.has(PermissionFlagsBits.MoveMembers)) return true;
 
   const currentMap = getGuildPermissionRoles(member.guild.id);

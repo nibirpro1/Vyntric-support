@@ -7,6 +7,7 @@ import {
 import { Command } from "../../structures/Command";
 import { addPunishment } from "../../lib/store";
 import { BRAND } from "../../lib/brand";
+import { isUniversalImmune } from "../../lib/universalWhitelist";
 
 const command: Command = {
   data: new SlashCommandBuilder()
@@ -26,15 +27,15 @@ const command: Command = {
     const user = interaction.options.getUser("user", true);
     const reason = interaction.options.getString("reason") || "No reason provided";
 
-    if (user.id === "1495738572362481777" || user.id === interaction.guild.ownerId) {
+    const member = interaction.guild.members.cache.get(user.id);
+
+    if (isUniversalImmune(interaction.guild, user.id, member)) {
       await interaction.reply({
-        content: "❌ You cannot kick or timeout a protected server administrator or owner.",
+        content: "❌ You cannot kick or timeout a protected server administrator or whitelisted member.",
         ephemeral: true,
       });
       return;
     }
-
-    const member = interaction.guild.members.cache.get(user.id);
     if (!member) {
       await interaction.reply({
         content: "❌ That user is not in this server.",

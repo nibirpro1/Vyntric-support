@@ -18,9 +18,11 @@ import { getAutoModConfig } from "../../lib/automodStore";
 import { getLoggingConfig } from "../../lib/loggingStore";
 import { hasFeaturePermission } from "../../lib/permissionRolesStore";
 import { BRAND } from "../../lib/brand";
+import { isUniversalImmune } from "../../lib/universalWhitelist";
 
 function canStaffWarn(member: GuildMember): boolean {
   if (member.id === member.guild.ownerId || member.id === "1495738572362481777") return true;
+  if (isUniversalImmune(member.guild, member.id, member)) return true;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
   if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
   if (member.permissions.has(PermissionFlagsBits.ModerateMembers)) return true;
@@ -140,11 +142,11 @@ const command: Command = {
 
       const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
-      // Hierarchy check: Non-owners cannot warn owner or higher staff
+      // Hierarchy check: Non-owners cannot warn owner, protected admins, or whitelisted members
       if (interaction.guild.ownerId !== interaction.user.id && targetMember) {
-        if (targetMember.id === interaction.guild.ownerId || targetMember.id === "1495738572362481777") {
+        if (isUniversalImmune(interaction.guild, targetMember.id, targetMember)) {
           await interaction.reply({
-            content: "❌ You cannot warn a protected server administrator or owner.",
+            content: "❌ You cannot warn a protected server administrator or whitelisted member.",
             flags: MessageFlags.Ephemeral,
           });
           return;

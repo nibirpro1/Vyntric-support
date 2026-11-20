@@ -53,6 +53,24 @@ const lavalinkNodes = [
     auth: process.env.LAVALINK_PASSWORD || "https://dsc.gg/ajidevserver",
     secure: process.env.LAVALINK_SECURE === "true",
   },
+  {
+    name: "Trinium-v4",
+    url: "lavalink.triniumhost.com:2333",
+    auth: "kirito",
+    secure: false,
+  },
+  {
+    name: "Kasawa-v4",
+    url: "lava2.kasawa.pro:2334",
+    auth: "youshallnotpass",
+    secure: false,
+  },
+  {
+    name: "Jirayu-v4",
+    url: "lavalink.jirayu.net:13592",
+    auth: "youshallnotpass",
+    secure: false,
+  },
 ];
 
 client.shoukaku = new Shoukaku(new Connectors.DiscordJS(client), lavalinkNodes);

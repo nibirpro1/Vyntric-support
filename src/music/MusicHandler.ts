@@ -1,4 +1,4 @@
-import { Player, Track, LoadType } from "shoukaku";
+import { Player, Track, LoadType, Node } from "shoukaku";
 import { GuildMember, TextBasedChannel } from "discord.js";
 import { VyntricClient } from "../structures/VyntricClient";
 
@@ -6,6 +6,29 @@ export interface GuildCurrentTrack {
   track: Track;
   requestedBy?: string;
   startedAt: number;
+}
+
+export interface PlayResult {
+  success: boolean;
+  message: string;
+  isPlaylist?: boolean;
+  playlistName?: string;
+  tracksAdded?: number;
+  firstTrack?: Track;
+}
+
+function normalizeQuery(input: string): string {
+  const trimmed = input.trim();
+
+  // YouTube Shorts: https://www.youtube.com/shorts/<id> -> https://www.youtube.com/watch?v=<id>
+  const shortsMatch = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/i
+  );
+  if (shortsMatch) {
+    return `https://www.youtube.com/watch?v=${shortsMatch[1]}`;
+  }
+
+  return trimmed;
 }
 
 export class MusicHandler {
@@ -20,42 +43,129 @@ export class MusicHandler {
     this.client = client;
   }
 
+  private async resolveTrackOrPlaylist(node: Node, query: string): Promise<any> {
+    const normalized = normalizeQuery(query);
+    const isUrl = /^https?:\/\//i.test(normalized);
+
+    if (isUrl) {
+      // 1. Apple Music detection & slug search fallback
+      if (/music\.apple\.com/i.test(normalized)) {
+        try {
+          const direct = await node.rest.resolve(normalized);
+          if (
+            direct &&
+            (direct.loadType === LoadType.TRACK || direct.loadType === LoadType.PLAYLIST)
+          ) {
+            return direct;
+          }
+        } catch {}
+
+        try {
+          const urlObj = new URL(normalized);
+          const parts = urlObj.pathname.split("/").filter(Boolean);
+          const slug = parts[2] || parts[parts.length - 1] || "";
+          const cleanSlug = decodeURIComponent(slug).replace(/[-_]/g, " ").trim();
+          if (cleanSlug) {
+            const fallback = await node.rest.resolve(`ytsearch:${cleanSlug}`);
+            if (
+              fallback &&
+              (fallback.loadType === LoadType.SEARCH || fallback.loadType === LoadType.TRACK)
+            ) {
+              return fallback;
+            }
+          }
+        } catch {}
+      }
+
+      // 2. Direct URL resolve (YouTube, Spotify playlists, albums, SoundCloud, streams)
+      try {
+        const direct = await node.rest.resolve(normalized);
+        if (direct && direct.loadType !== LoadType.EMPTY && direct.loadType !== LoadType.ERROR) {
+          return direct;
+        }
+
+        // Clean YouTube watch URL if it had mix playlist param (&list=RD...)
+        if (
+          /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]+)/i.test(normalized) &&
+          normalized.includes("&list=")
+        ) {
+          const vMatch = normalized.match(/v=([a-zA-Z0-9_-]+)/i);
+          if (vMatch) {
+            const cleanRes = await node.rest.resolve(`https://www.youtube.com/watch?v=${vMatch[1]}`);
+            if (
+              cleanRes &&
+              cleanRes.loadType !== LoadType.EMPTY &&
+              cleanRes.loadType !== LoadType.ERROR
+            ) {
+              return cleanRes;
+            }
+          }
+        }
+
+        return direct;
+      } catch (err: any) {
+        console.warn(`[MusicHandler:resolve] error resolving URL ${normalized}:`, err?.message || err);
+      }
+    }
+
+    // 3. Search query: Try ytsearch -> scsearch -> spsearch
+    const searchEngines = ["ytsearch:", "scsearch:", "spsearch:"];
+    for (const prefix of searchEngines) {
+      try {
+        const res = await node.rest.resolve(`${prefix}${normalized}`);
+        if (
+          res &&
+          res.loadType === LoadType.SEARCH &&
+          Array.isArray(res.data) &&
+          res.data.length > 0
+        ) {
+          return res;
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
   public async play(
     member: GuildMember,
     query: string,
     textChannel?: TextBasedChannel
-  ): Promise<string> {
+  ): Promise<PlayResult> {
     if (!member.voice?.channelId) {
-      return "❌ You must be in a voice channel!";
+      return { success: false, message: "❌ You must be in a voice channel!" };
     }
 
     if (!this.client.shoukaku) {
-      return "❌ Lavalink audio system is not initialized.";
+      return { success: false, message: "❌ Lavalink audio system is not initialized." };
     }
 
     const node = this.client.shoukaku.options.nodeResolver(this.client.shoukaku.nodes);
     if (!node) {
-      return "❌ No Lavalink node available. Please check server connection.";
+      return {
+        success: false,
+        message: "❌ No Lavalink node available. Please check server connection.",
+      };
     }
 
-    const trimmed = query.trim();
-    const identifier = /^https?:\/\//i.test(trimmed) ? trimmed : `ytsearch:${trimmed}`;
-
-    let result;
+    let result: any = null;
     try {
-      result = await node.rest.resolve(identifier);
+      result = await this.resolveTrackOrPlaylist(node, query);
     } catch (err: any) {
       console.error("[MusicHandler:resolve] Error resolving track:", err?.message || err);
-      return `❌ Failed to resolve track: ${err?.message || "Unknown error"}`;
+      return {
+        success: false,
+        message: `❌ Failed to resolve track: ${err?.message || "Unknown error"}`,
+      };
     }
 
     if (!result || result.loadType === LoadType.EMPTY) {
-      return "❌ No results found.";
+      return { success: false, message: "❌ No results found." };
     }
 
     if (result.loadType === LoadType.ERROR) {
       const errorMsg = (result.data as any)?.message || "Track loading failed.";
-      return `❌ Lavalink error: ${errorMsg}`;
+      return { success: false, message: `❌ Lavalink error: ${errorMsg}` };
     }
 
     let tracksToAdd: Track[] = [];
@@ -76,7 +186,7 @@ export class MusicHandler {
     }
 
     if (tracksToAdd.length === 0 || !tracksToAdd[0]) {
-      return "❌ No playable tracks found.";
+      return { success: false, message: "❌ No playable tracks found." };
     }
 
     let player = this.players.get(member.guild.id);
@@ -108,12 +218,12 @@ export class MusicHandler {
         });
       } catch (error: any) {
         console.error("[MusicHandler:joinVoiceChannel]", error);
-        return "❌ Failed to join voice channel.";
+        return { success: false, message: "❌ Failed to join voice channel." };
       }
     }
 
     if (!player) {
-      return "❌ Failed to initialize player.";
+      return { success: false, message: "❌ Failed to initialize player." };
     }
 
     const guildQueue = this.queue.get(member.guild.id) || [];
@@ -125,13 +235,31 @@ export class MusicHandler {
 
     if (!player.track) {
       await this.playNext(member.guild.id, member.user.tag);
-      return isPlaylist
+      const msg = isPlaylist
         ? `🎶 Playing **${firstTitle}** and queued **${tracksToAdd.length - 1}** more track(s) from playlist **${playlistName}**`
         : `🎶 Playing **${firstTitle}**`;
+
+      return {
+        success: true,
+        message: msg,
+        isPlaylist,
+        playlistName,
+        tracksAdded: tracksToAdd.length,
+        firstTrack,
+      };
     } else {
-      return isPlaylist
+      const msg = isPlaylist
         ? `📜 Added **${tracksToAdd.length}** track(s) from playlist **${playlistName}** to queue`
         : `📜 Added to queue: **${firstTitle}**`;
+
+      return {
+        success: true,
+        message: msg,
+        isPlaylist,
+        playlistName,
+        tracksAdded: tracksToAdd.length,
+        firstTrack,
+      };
     }
   }
 

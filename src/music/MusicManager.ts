@@ -129,7 +129,7 @@ function getYtDlpMetadata(urlOrQuery: string): Promise<any> {
         "--no-playlist",
         "--no-warnings",
         "--extractor-args",
-        "youtube:player_client=android,web,tv",
+        "youtube:player_client=android,mweb",
         "-q",
         urlOrQuery,
       ],
@@ -139,7 +139,9 @@ function getYtDlpMetadata(urlOrQuery: string): Promise<any> {
         try {
           const lines = stdout.trim().split("\n").filter(Boolean);
           if (lines.length === 0) return resolve(null);
-          const data = JSON.parse(lines[0]);
+          const jsonLine = lines.find((l) => l.startsWith("{"));
+          if (!jsonLine) return resolve(null);
+          const data = JSON.parse(jsonLine);
           resolve(data);
         } catch {
           resolve(null);
@@ -159,19 +161,16 @@ export function getDirectAudioUrl(url: string): Promise<string | null> {
         "--no-playlist",
         "--no-warnings",
         "--extractor-args",
-        "youtube:player_client=android,web,tv",
+        "youtube:player_client=android,mweb",
         "-g",
         url,
       ],
       { timeout: 15_000 },
       (err, stdout) => {
         if (err || !stdout) return resolve(null);
-        const directUrl = stdout.trim().split("\n")[0]?.trim();
-        if (directUrl && directUrl.startsWith("http")) {
-          resolve(directUrl);
-        } else {
-          resolve(null);
-        }
+        const lines = stdout.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+        const directUrl = lines.find((l) => l.startsWith("http://") || l.startsWith("https://"));
+        resolve(directUrl ?? null);
       }
     );
   });
@@ -304,7 +303,7 @@ export class MusicManager {
           "--dump-json",
           "--no-warnings",
           "--extractor-args",
-          "youtube:player_client=android,web,tv",
+          "youtube:player_client=android,mweb",
           "-q",
           playlistUrl,
         ],
@@ -316,7 +315,9 @@ export class MusicManager {
             const tracks: Track[] = [];
             for (let i = 0; i < Math.min(lines.length, maxTracks); i++) {
               try {
-                const item = JSON.parse(lines[i]);
+                const line = lines[i];
+                if (!line.startsWith("{")) continue;
+                const item = JSON.parse(line);
                 const id = item.id || `track_${i}`;
                 const title = item.title || "Unknown Title";
                 const url = item.url || item.webpage_url || `https://www.youtube.com/watch?v=${id}`;
@@ -357,7 +358,7 @@ export class MusicManager {
           "--no-playlist",
           "--no-warnings",
           "--extractor-args",
-          "youtube:player_client=android,web,tv",
+          "youtube:player_client=android,mweb",
           "-q",
           `ytsearch1:${query}`,
         ],
@@ -367,7 +368,9 @@ export class MusicManager {
           try {
             const lines = stdout.trim().split("\n").filter(Boolean);
             if (lines.length === 0) return resolve([]);
-            const meta = JSON.parse(lines[0]);
+            const jsonLine = lines.find((l) => l.startsWith("{"));
+            if (!jsonLine) return resolve([]);
+            const meta = JSON.parse(jsonLine);
             const id = meta.id || `yt_${Date.now()}`;
             const durationSec = Math.round(meta.duration || 0);
             resolve([
@@ -634,6 +637,8 @@ export class MusicManager {
             "--flat-playlist",
             "--dump-json",
             "--no-warnings",
+            "--extractor-args",
+            "youtube:player_client=android,mweb",
             "-q",
             "--playlist-end",
             "20",
@@ -913,18 +918,26 @@ export class MusicManager {
                 "-reconnect", "1",
                 "-reconnect_streamed", "1",
                 "-reconnect_delay_max", "5",
+                "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "-analyzeduration", "0",
-                "-loglevel", "0",
+                "-loglevel", "warning",
                 "-i", directUrl,
                 "-f", "s16le",
                 "-ar", "48000",
                 "-ac", "2",
                 "pipe:1",
               ],
-              { stdio: ["ignore", "pipe", "ignore"] }
+              { stdio: ["ignore", "pipe", "pipe"] }
             );
 
             queue.streamProcesses = [ffmpeg];
+
+            ffmpeg.stderr.on("data", (d) => {
+              const msg = d.toString().trim();
+              if (msg && !msg.includes("frame=") && !msg.includes("size=")) {
+                console.warn(`[music:ffmpeg:direct:${guildId}]`, msg);
+              }
+            });
 
             ffmpeg.on("error", (err) => {
               console.error(`[music:ffmpeg:direct:${guildId}] process error:`, err);
@@ -954,18 +967,26 @@ export class MusicManager {
                     "-reconnect", "1",
                     "-reconnect_streamed", "1",
                     "-reconnect_delay_max", "5",
+                    "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "-analyzeduration", "0",
-                    "-loglevel", "0",
+                    "-loglevel", "warning",
                     "-i", altDirectUrl,
                     "-f", "s16le",
                     "-ar", "48000",
                     "-ac", "2",
                     "pipe:1",
                   ],
-                  { stdio: ["ignore", "pipe", "ignore"] }
+                  { stdio: ["ignore", "pipe", "pipe"] }
                 );
 
                 queue.streamProcesses = [ffmpeg];
+
+                ffmpeg.stderr.on("data", (d) => {
+                  const msg = d.toString().trim();
+                  if (msg && !msg.includes("frame=") && !msg.includes("size=")) {
+                    console.warn(`[music:ffmpeg:alt:${guildId}]`, msg);
+                  }
+                });
 
                 ffmpeg.on("error", (err) => {
                   console.error(`[music:ffmpeg:alt:${guildId}] process error:`, err);
@@ -994,7 +1015,7 @@ export class MusicManager {
                 "-f", "ba/b",
                 "--no-playlist",
                 "--no-warnings",
-                "--extractor-args", "youtube:player_client=android,web,tv",
+                "--extractor-args", "youtube:player_client=android,mweb",
                 "-q",
                 "-o", "-",
                 nextTrack.url,
@@ -1006,14 +1027,14 @@ export class MusicManager {
               ffmpegBin,
               [
                 "-analyzeduration", "0",
-                "-loglevel", "0",
+                "-loglevel", "warning",
                 "-i", "pipe:0",
                 "-f", "s16le",
                 "-ar", "48000",
                 "-ac", "2",
                 "pipe:1",
               ],
-              { stdio: ["pipe", "pipe", "ignore"] }
+              { stdio: ["pipe", "pipe", "pipe"] }
             );
 
             ffmpeg.stdin.on("error", (err: any) => {
@@ -1029,6 +1050,13 @@ export class MusicManager {
               const errStr = d.toString().trim();
               if (errStr && !errStr.includes("WARNING")) {
                 console.warn(`[music:ytdlp:stderr:${guildId}]`, errStr);
+              }
+            });
+
+            ffmpeg.stderr.on("data", (d) => {
+              const msg = d.toString().trim();
+              if (msg && !msg.includes("frame=") && !msg.includes("size=")) {
+                console.warn(`[music:ffmpeg:stderr:${guildId}]`, msg);
               }
             });
 
@@ -1065,17 +1093,24 @@ export class MusicManager {
                       "-reconnect", "1",
                       "-reconnect_streamed", "1",
                       "-reconnect_delay_max", "5",
+                      "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                       "-analyzeduration", "0",
-                      "-loglevel", "0",
+                      "-loglevel", "warning",
                       "-i", fallbackUrl,
                       "-f", "s16le",
                       "-ar", "48000",
                       "-ac", "2",
                       "pipe:1",
                     ],
-                    { stdio: ["ignore", "pipe", "ignore"] }
+                    { stdio: ["ignore", "pipe", "pipe"] }
                   );
                   queue.streamProcesses = [ffmpeg];
+                  ffmpeg.stderr.on("data", (d) => {
+                    const msg = d.toString().trim();
+                    if (msg && !msg.includes("frame=") && !msg.includes("size=")) {
+                      console.warn(`[music:ffmpeg:fallback:${guildId}]`, msg);
+                    }
+                  });
                   ffmpeg.on("error", (err) => {
                     console.error(`[music:ffmpeg:fallback:${guildId}] process error:`, err);
                   });
@@ -1206,6 +1241,25 @@ export class MusicManager {
       console.warn(
         `[music:guard:${guildId}] Track "${queue.currentTrack.title}" ended after only ${elapsed}ms! Audio stream aborted prematurely.`
       );
+      queue.consecutiveErrors = (queue.consecutiveErrors || 0) + 1;
+      if (queue.consecutiveErrors >= 3) {
+        console.warn(`[music:throttle:${guildId}] Pausing playback loop after 3 consecutive premature abortions.`);
+        queue.isPlaying = false;
+        queue.currentTrack = null;
+        queue.textChannel
+          .send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(BRAND.colors.warning)
+                .setTitle("⏸️ Playback Paused")
+                .setDescription(
+                  "Audio stream was aborted unexpectedly. Please use `/play` to choose your next song!"
+                ),
+            ],
+          })
+          .catch(() => {});
+        return;
+      }
     }
 
     if (queue.currentTrack) {

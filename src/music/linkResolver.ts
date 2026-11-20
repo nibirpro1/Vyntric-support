@@ -116,7 +116,7 @@ export async function searchYouTubeTrack(query: string): Promise<{
         "--no-playlist",
         "--no-warnings",
         "--extractor-args",
-        "youtube:player_client=android,web,tv",
+        "youtube:player_client=android,mweb",
         "-q",
         `ytsearch1:${clean}`,
       ],
@@ -126,7 +126,9 @@ export async function searchYouTubeTrack(query: string): Promise<{
         try {
           const lines = stdout.trim().split("\n").filter(Boolean);
           if (lines.length === 0) return resolve(null);
-          const meta = JSON.parse(lines[0]);
+          const jsonLine = lines.find((l) => l.startsWith("{"));
+          if (!jsonLine) return resolve(null);
+          const meta = JSON.parse(jsonLine);
           const id = meta.id || `yt_${Date.now()}`;
           resolve({
             id: `yt_${id}`,
@@ -474,7 +476,9 @@ export async function resolveSoundCloud(
         (err, stdout) => {
           if (err || !stdout) return resolve(null);
           try {
-            resolve(JSON.parse(stdout));
+            const lines = stdout.trim().split("\n").filter(Boolean);
+            const jsonLine = lines.find((l) => l.startsWith("{"));
+            resolve(jsonLine ? JSON.parse(jsonLine) : null);
           } catch {
             resolve(null);
           }
@@ -586,7 +590,9 @@ export async function resolveGenericMediaUrl(
       (err, stdout) => {
         if (err || !stdout) return resolve(null);
         try {
-          resolve(JSON.parse(stdout));
+          const lines = stdout.trim().split("\n").filter(Boolean);
+          const jsonLine = lines.find((l) => l.startsWith("{"));
+          resolve(jsonLine ? JSON.parse(jsonLine) : null);
         } catch {
           resolve(null);
         }
